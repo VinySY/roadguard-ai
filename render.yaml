@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: roadguard-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_ENV
+        value: production
+      - key: ROBOFLOW_API_KEY
+        sync: false
+      - key: ROBOFLOW_WORKSPACE
+        value: govindsy43564-gmail-com
+      - key: ROBOFLOW_PROJECT
+        value: pothole-detection-itsgr
+      - key: ROBOFLOW_VERSION
+        value: "1"
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: roadguard
+      - key: DB_SSL
+        value: "true"
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      - key: FRONTEND_URL
+        sync: false

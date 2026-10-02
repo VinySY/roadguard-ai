@@ -20,6 +20,7 @@ import {
   NavigationTab, 
   AppSettings 
 } from './types/detection';
+import { getApiUrl } from './config/api';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('landing');
@@ -84,7 +85,7 @@ export default function App() {
   }, []);
 
   const handleSelectSample = useCallback((sample: SampleImage) => {
-    const preview = `/api/samples/${sample.filename}`;
+    const preview = getApiUrl(`/api/samples/${sample.filename}`);
     setDetectionState({
       status: 'image-selected',
       sampleFilename: sample.filename,

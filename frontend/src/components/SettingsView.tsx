@@ -9,6 +9,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { AppSettings, ServerHealth } from '../types/detection';
+import { API_BASE_URL } from '../config/api';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -125,7 +126,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="space-y-3 text-xs font-mono">
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-850 flex items-center justify-between">
               <span className="text-slate-400">Backend Server URL:</span>
-              <span className="text-slate-200">http://localhost:3001/api</span>
+              <span className="text-slate-200 truncate max-w-[240px]">
+                {API_BASE_URL ? `${API_BASE_URL}/api` : 'http://localhost:3001/api'}
+              </span>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-850 flex items-center justify-between">

@@ -26,6 +26,7 @@ import {
   AppSettings,
   PotholePrediction
 } from '../types/detection';
+import { getApiUrl } from '../config/api';
 
 interface DetectionStudioProps {
   detectionState: DetectionState;
@@ -441,7 +442,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
                     className="group relative aspect-[4/3] rounded-xl overflow-hidden border border-slate-800 hover:border-amber-500/60 bg-slate-950 transition-all text-left focus:outline-none"
                   >
                     <img
-                      src={`/api/samples/${sample.filename}`}
+                      src={getApiUrl(`/api/samples/${sample.filename}`)}
                       alt={sample.name}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

@@ -1,4 +1,5 @@
 import { Point, VideoDetectOptions, VideoDetectionResponse, AnalyticsSummaryResponse } from '../types/detection';
+import { getApiUrl } from '../config/api';
 
 export interface InspectionRecord {
   id: number;
@@ -72,7 +73,7 @@ export interface CreateRoadIssuePayload {
  * Fetch paginated inspections from MySQL backend.
  */
 export async function fetchInspections(limit = 50, offset = 0): Promise<InspectionsResponse> {
-  const res = await fetch(`/api/inspections?limit=${limit}&offset=${offset}`);
+  const res = await fetch(getApiUrl(`/api/inspections?limit=${limit}&offset=${offset}`));
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -90,7 +91,7 @@ export async function fetchInspections(limit = 50, offset = 0): Promise<Inspecti
  * Fetch single inspection by ID.
  */
 export async function fetchInspectionById(id: number): Promise<InspectionRecord> {
-  const res = await fetch(`/api/inspections/${id}`);
+  const res = await fetch(getApiUrl(`/api/inspections/${id}`));
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -108,7 +109,7 @@ export async function fetchInspectionById(id: number): Promise<InspectionRecord>
  * Fetch detection items for a specific inspection.
  */
 export async function fetchInspectionDetections(id: number): Promise<InspectionDetailResponse> {
-  const res = await fetch(`/api/inspections/${id}/detections`);
+  const res = await fetch(getApiUrl(`/api/inspections/${id}/detections`));
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -133,7 +134,7 @@ export async function fetchRoadIssues(status?: string, limit = 50, offset = 0): 
     query.set('status', status);
   }
 
-  const res = await fetch(`/api/issues?${query.toString()}`);
+  const res = await fetch(getApiUrl(`/api/issues?${query.toString()}`));
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -151,7 +152,7 @@ export async function fetchRoadIssues(status?: string, limit = 50, offset = 0): 
  * Create a new road issue in MySQL.
  */
 export async function createRoadIssue(payload: CreateRoadIssuePayload): Promise<RoadIssueRecord> {
-  const res = await fetch('/api/issues', {
+  const res = await fetch(getApiUrl('/api/issues'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -174,7 +175,7 @@ export async function createRoadIssue(payload: CreateRoadIssuePayload): Promise<
  * Update the status of an existing road issue in MySQL.
  */
 export async function updateRoadIssueStatus(id: number, status: string): Promise<RoadIssueRecord> {
-  const res = await fetch(`/api/issues/${id}/status`, {
+  const res = await fetch(getApiUrl(`/api/issues/${id}/status`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -219,7 +220,7 @@ export async function detectVideo(
   }
 
   const queryString = queryParams.toString();
-  const url = `/api/detect/video${queryString ? `?${queryString}` : ''}`;
+  const url = getApiUrl(`/api/detect/video${queryString ? `?${queryString}` : ''}`);
 
   let response: Response;
   try {
@@ -251,7 +252,7 @@ export async function detectVideo(
  * Fetch historical analytics summary from MySQL backend.
  */
 export async function fetchAnalyticsSummary(): Promise<AnalyticsSummaryResponse> {
-  const res = await fetch('/api/analytics/summary');
+  const res = await fetch(getApiUrl('/api/analytics/summary'));
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try {
@@ -264,4 +265,5 @@ export async function fetchAnalyticsSummary(): Promise<AnalyticsSummaryResponse>
   }
   return await res.json();
 }
+
 

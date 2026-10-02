@@ -14,6 +14,20 @@ export interface DbConfig {
   user: string;
   password: string;
   database: string;
+  ssl?: any;
+}
+
+function getSslConfig(): any {
+  const sslEnabled =
+    process.env.DB_SSL === 'true' ||
+    process.env.MYSQL_SSL === 'true' ||
+    process.env.DB_SSL_MODE === 'REQUIRED';
+
+  if (!sslEnabled) return undefined;
+
+  return {
+    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+  };
 }
 
 function getDbConfig(): DbConfig {
@@ -23,6 +37,7 @@ function getDbConfig(): DbConfig {
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'roadguard',
+    ssl: getSslConfig(),
   };
 }
 
@@ -36,22 +51,39 @@ export function getPool(): mysql.Pool | null {
   if (pool) return pool;
 
   try {
-    const config = getDbConfig();
-    pool = mysql.createPool({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      // Auto-reconnect on transient failures
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 10000,
-    });
+    const ssl = getSslConfig();
 
-    console.log(`[RoadGuard DB] Pool created for ${config.host}:${config.port}/${config.database}`);
+    if (process.env.DATABASE_URL) {
+      pool = mysql.createPool({
+        uri: process.env.DATABASE_URL,
+        ssl,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000,
+      });
+      console.log('[RoadGuard DB] Pool created from DATABASE_URL');
+    } else {
+      const config = getDbConfig();
+      pool = mysql.createPool({
+        host: config.host,
+        port: config.port,
+        user: config.user,
+        password: config.password,
+        database: config.database,
+        ssl,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        // Auto-reconnect on transient failures
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000,
+      });
+      console.log(
+        `[RoadGuard DB] Pool created for ${config.host}:${config.port}/${config.database} (SSL: ${ssl ? 'enabled' : 'disabled'})`
+      );
+    }
     
     // Automatically ensure optional schema columns exist
     ensureSchema(pool);

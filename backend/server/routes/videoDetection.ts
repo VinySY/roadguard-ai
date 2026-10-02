@@ -4,16 +4,39 @@ import fs from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
 import { getPool } from '../db/pool.js';
 import { saveInspection, saveDetections } from '../db/persistence.js';
 import { deduplicateDetectionsAcrossFrames, calculateIoU } from '../utils/iou.js';
-
-// Use system-installed FFmpeg (manually installed on Windows)
-// The manually installed FFmpeg 9.0.2 is confirmed working via `ffmpeg -version`
-// fluent-ffmpeg will automatically find it in PATH
+import { getProjectRoot } from '../utils/paths.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = getProjectRoot(__dirname);
+
+// Configure FFmpeg binary:
+// 1. Explicit FFMPEG_PATH env var if provided
+// 2. On non-Windows containers without system ffmpeg, use ffmpegStatic
+// 3. Otherwise default to system PATH (default fluent-ffmpeg behavior, proven on Windows & Docker)
+try {
+  if (process.env.FFMPEG_PATH) {
+    ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
+    console.log(`[RoadGuard Video] Using FFmpeg from FFMPEG_PATH: ${process.env.FFMPEG_PATH}`);
+  } else if (process.platform !== 'win32' && ffmpegStatic && typeof ffmpegStatic === 'string') {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+  }
+} catch (e: any) {
+  console.warn('[RoadGuard Video] Could not set custom FFmpeg path, defaulting to system PATH:', e?.message || e);
+}
+
+if (process.env.FFPROBE_PATH) {
+  try {
+    ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
+    console.log(`[RoadGuard Video] Using FFprobe from FFPROBE_PATH: ${process.env.FFPROBE_PATH}`);
+  } catch (e: any) {
+    console.warn('[RoadGuard Video] Could not set custom FFprobe path:', e?.message || e);
+  }
+}
 
 const router = Router();
 
@@ -55,12 +78,12 @@ function parseConfidenceThreshold(value: unknown): number | null {
 }
 
 // Video upload via Multer — disk storage for FFmpeg access
-const videoUploadsDir = join(__dirname, '../../uploads/videos');
+const videoUploadsDir = join(projectRoot, 'uploads/videos');
 if (!fs.existsSync(videoUploadsDir)) {
   fs.mkdirSync(videoUploadsDir, { recursive: true });
 }
 
-const framesDir = join(__dirname, '../../uploads/frames');
+const framesDir = join(projectRoot, 'uploads/frames');
 if (!fs.existsSync(framesDir)) {
   fs.mkdirSync(framesDir, { recursive: true });
 }

@@ -1,4 +1,5 @@
 import { DetectionResult, SampleImage, ServerHealth } from '../types/detection';
+import { getApiUrl } from '../config/api';
 
 export interface DetectOptions {
   confidence?: number;
@@ -29,7 +30,7 @@ export async function detectPotholes(
   }
 
   const queryString = queryParams.toString();
-  const url = `/api/detect${queryString ? `?${queryString}` : ''}`;
+  const url = getApiUrl(`/api/detect${queryString ? `?${queryString}` : ''}`);
 
   let response: Response;
   try {
@@ -64,7 +65,7 @@ export async function checkServerHealth(): Promise<ServerHealth> {
   const timeoutId = setTimeout(() => controller.abort(), 3500);
 
   try {
-    const response = await fetch('/api/health', { signal: controller.signal });
+    const response = await fetch(getApiUrl('/api/health'), { signal: controller.signal });
     clearTimeout(timeoutId);
     if (!response.ok) {
       throw new Error(`Health check returned ${response.status}`);
@@ -78,7 +79,7 @@ export async function checkServerHealth(): Promise<ServerHealth> {
 
 export async function fetchSampleImages(): Promise<SampleImage[]> {
   try {
-    const response = await fetch('/api/samples');
+    const response = await fetch(getApiUrl('/api/samples'));
     if (!response.ok) return [];
     const data = await response.json();
     if (Array.isArray(data)) return data;

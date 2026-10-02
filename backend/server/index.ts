@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -9,12 +10,49 @@ import { getPool, checkDbHealth, closePool } from './db/pool.js';
 import { saveInspection, saveDetections } from './db/persistence.js';
 import dbRoutes from './routes/dbRoutes.js';
 import videoRoutes from './routes/videoDetection.js';
+import { getProjectRoot } from './utils/paths.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = getProjectRoot(__dirname);
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
+const HOST = process.env.HOST || '0.0.0.0';
+
+// Configurable CORS origins for production (Vercel) & local development
+const configuredOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map((url) => url.trim().replace(/\/+$/, ''))
+  : [];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server, health probes)
+      if (!origin) return callback(null, true);
+
+      // Explicitly configured frontend URLs or wildcard
+      if (configuredOrigins.includes('*') || configuredOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Automatically allow Vercel production and preview domains
+      if (/^https:\/\/.*\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow local development and private LAN connections
+      if (/^http:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  })
+);
 
 // Roboflow Model Configuration (YOLOv11 Instance Segmentation)
 const ROBOFLOW_WORKSPACE = process.env.ROBOFLOW_WORKSPACE || 'govindsy43564-gmail-com';
@@ -31,7 +69,7 @@ function getSanitizedApiKey(): string {
 }
 
 // Ensure uploads directory exists for persisting inspection images
-const uploadsDir = join(__dirname, '../uploads/inspections');
+const uploadsDir = join(projectRoot, 'uploads/inspections');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -110,7 +148,7 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 // Provide sample images from test/images directory for quick UI testing
 app.get('/api/samples', (_req: Request, res: Response) => {
   try {
-    const testDir = join(__dirname, '../test/images');
+    const testDir = join(projectRoot, 'test/images');
     if (!fs.existsSync(testDir)) {
       return res.json({ samples: [] });
     }
@@ -135,7 +173,7 @@ app.get('/api/samples/:filename', (req: Request, res: Response) => {
   const filename = req.params.filename;
   // Security check to prevent path traversal
   const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '');
-  const filePath = join(__dirname, '../test/images', safeFilename);
+  const filePath = join(projectRoot, 'test/images', safeFilename);
 
   if (fs.existsSync(filePath)) {
     res.sendFile(filePath);
@@ -163,7 +201,7 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
       imageFilename = req.file.originalname || 'upload.jpg';
     } else if (req.body && req.body.sampleFilename) {
       const safeFilename = req.body.sampleFilename.replace(/[^a-zA-Z0-9._-]/g, '');
-      const samplePath = join(__dirname, '../test/images', safeFilename);
+      const samplePath = join(projectRoot, 'test/images', safeFilename);
       if (fs.existsSync(samplePath)) {
         imageBuffer = fs.readFileSync(samplePath);
         imageFilename = safeFilename;
@@ -379,8 +417,8 @@ if (pool) {
   });
 }
 
-const server = app.listen(PORT, () => {
-  console.log(`[RoadGuard AI] Backend server active on http://localhost:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`[RoadGuard AI] Backend server active on http://${HOST}:${PORT}`);
   console.log(`[RoadGuard AI] Roboflow Project: ${ROBOFLOW_PROJECT} (v${ROBOFLOW_VERSION})`);
   console.log(`[RoadGuard AI] API Key status: ${getSanitizedApiKey() ? 'Configured' : 'Missing'}`);
 });
