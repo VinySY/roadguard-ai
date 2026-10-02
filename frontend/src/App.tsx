@@ -1,248 +1,399 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Navigation } from './components/Navigation';
-import { LandingPage } from './components/LandingPage';
-import { DashboardView } from './components/DashboardView';
-import { DetectionStudio } from './components/DetectionStudio';
-import { VideoDetectionStudio } from './components/VideoDetectionStudio';
-import { ReportsView } from './components/ReportsView';
-import { RoadIssuesView } from './components/RoadIssuesView';
-import { MapView } from './components/MapView';
-import { AnalyticsView } from './components/AnalyticsView';
-import { SettingsView } from './components/SettingsView';
-import { ErrorBoundary } from './components/ErrorBoundary';
-
-import { detectPotholes, checkServerHealth, fetchSampleImages } from './services/roboflow';
-import { 
-  DetectionState, 
-  DetectionResult, 
-  SampleImage, 
-  ServerHealth, 
-  NavigationTab, 
-  AppSettings 
-} from './types/detection';
-import { getApiUrl } from './config/api';
+import React, { useState, useEffect } from 'react';
+import { User, UserRole, RoadIssue, LocationCoordinates, AppNotification, DetectionResult, ServerHealth } from './types';
+import { storage, DEMO_USERS } from './services/storage';
+import { getCurrentBrowserLocation } from './services/location';
+import { checkServerHealth } from './services/roboflow';
+import { Header } from './components/layout/Header';
+import { Sidebar } from './components/layout/Sidebar';
+import { MobileNav } from './components/layout/MobileNav';
+import { CustomerDashboard } from './components/customer/CustomerDashboard';
+import { CustomerReportsView } from './components/customer/CustomerReportsView';
+import { WorkerDashboard } from './components/worker/WorkerDashboard';
+import { WorkerTasksView } from './components/worker/WorkerTasksView';
+import { InspectorOverview } from './components/inspector/InspectorOverview';
+import { RoadIssuesView } from './components/inspector/RoadIssuesView';
+import { InspectorAssignments } from './components/inspector/InspectorAssignments';
+import { InspectorAnalytics } from './components/inspector/InspectorAnalytics';
+import { InspectorReports } from './components/inspector/InspectorReports';
+import { DetectionStudio } from './components/detection/DetectionStudio';
+import { LeafletMap } from './components/map/LeafletMap';
+import { ReportModal } from './components/reporting/ReportModal';
+import { AuthModal } from './components/auth/AuthModal';
+import { SettingsModal } from './components/settings/SettingsModal';
+import { LandingPage } from './components/landing/LandingPage';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<NavigationTab>('landing');
-  const [detectionState, setDetectionState] = useState<DetectionState>({ status: 'idle' });
-  const [latestResult, setLatestResult] = useState<DetectionResult | null>(null);
+  const [activeRole, setActiveRole] = useState<UserRole>(storage.getActiveRole());
+  const [currentUser, setCurrentUser] = useState<User | null>(storage.getCurrentUser());
+  const [currentNav, setCurrentNav] = useState<string>('home');
+  const [issues, setIssues] = useState<RoadIssue[]>(storage.getIssues());
+  const [notifications, setNotifications] = useState<AppNotification[]>(storage.getNotifications(activeRole));
+  const [userLocation, setUserLocation] = useState<LocationCoordinates | null>(null);
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>(storage.getTheme());
   const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
-  const [samples, setSamples] = useState<SampleImage[]>([]);
-  const [confidenceSetting, setConfidenceSetting] = useState<number>(20);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
-  const [settings, setSettings] = useState<AppSettings>({
-    defaultConfidence: 20,
-    showPolygonsByDefault: true,
-    showBoundingBoxesByDefault: true,
-    showLabelsByDefault: true,
-    highContrastColors: false,
-  });
+  // Modals
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalInitialDetection, setReportModalInitialDetection] = useState<DetectionResult | null>(null);
+  const [reportModalInitialMode, setReportModalInitialMode] = useState<'upload-image' | 'take-photo' | 'upload-video' | 'record-video'>('upload-image');
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
-  // Verify health and fetch samples on mount
-  const checkHealth = useCallback(() => {
-    checkServerHealth()
-      .then((health) => setServerHealth(health))
-      .catch(() => setServerHealth(null));
-  }, []);
-
+  // Initialize theme on mount
   useEffect(() => {
-    checkHealth();
-    fetchSampleImages().then((list) => setSamples(list));
-    // Poll health periodically every 20 seconds
-    const interval = setInterval(checkHealth, 20000);
-    return () => clearInterval(interval);
-  }, [checkHealth]);
-
-  // Handlers for file selection & drag-and-drop
-  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please select a valid road image file (JPEG, PNG, or WebP).');
-      return;
-    }
-
-    const preview = URL.createObjectURL(file);
-    setDetectionState({ status: 'image-selected', file, preview, name: file.name });
-    setCurrentTab('detect');
+    const initialized = storage.initTheme();
+    setCurrentTheme(initialized);
   }, []);
 
-  const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please drop a valid image file (JPEG, PNG, or WebP).');
-      return;
-    }
-
-    const preview = URL.createObjectURL(file);
-    setDetectionState({ status: 'image-selected', file, preview, name: file.name });
-    setCurrentTab('detect');
-  }, []);
-
-  const handleSelectSample = useCallback((sample: SampleImage) => {
-    const preview = getApiUrl(`/api/samples/${sample.filename}`);
-    setDetectionState({
-      status: 'image-selected',
-      sampleFilename: sample.filename,
-      preview,
-      name: sample.name,
-    });
-    setCurrentTab('detect');
-  }, []);
-
-  // Main Detection Dispatcher: Calls real /api/detect
-  const handleDetect = useCallback(async () => {
-    if (detectionState.status !== 'image-selected' && detectionState.status !== 'error') return;
-
-    const currentPreview = detectionState.preview || '';
-    const currentFile = detectionState.file;
-    const currentSampleFilename = detectionState.sampleFilename;
-    const currentName = detectionState.name;
-
-    setDetectionState({ status: 'detecting', preview: currentPreview, name: currentName });
-
-    try {
-      const result = await detectPotholes(
-        { file: currentFile, sampleFilename: currentSampleFilename },
-        { confidence: confidenceSetting }
-      );
-
-      setLatestResult(result);
-
-      if (!result.predictions || result.predictions.length === 0) {
-        setDetectionState({
-          status: 'no-detections',
-          result,
-          imagePreview: currentPreview,
-        });
-      } else {
-        setDetectionState({
-          status: 'success',
-          result,
-          imagePreview: currentPreview,
-        });
+  // Poll server health on mount & periodic interval
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const health = await checkServerHealth();
+        setServerHealth(health);
+      } catch {
+        setServerHealth(null);
       }
-    } catch (error) {
-      console.error('Inference request failed:', error);
-      const message = error instanceof Error ? error.message : 'Unable to complete detection';
-      setDetectionState({
-        status: 'error',
-        error: message,
-        file: currentFile,
-        sampleFilename: currentSampleFilename,
-        preview: currentPreview,
-        name: currentName,
-      });
-    }
-  }, [detectionState, confidenceSetting]);
-
-  const handleResetDetection = useCallback(() => {
-    setDetectionState({ status: 'idle' });
+    };
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+    return () => clearInterval(interval);
   }, []);
+
+  // Sync role and notifications
+  useEffect(() => {
+    setNotifications(storage.getNotifications(activeRole));
+  }, [activeRole]);
+
+  const handleToggleTheme = () => {
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setCurrentTheme(nextTheme);
+    storage.setTheme(nextTheme);
+  };
+
+  // Handle role switch
+  const handleRoleChange = (newRole: UserRole) => {
+    setActiveRole(newRole);
+    storage.setActiveRole(newRole);
+    const user = DEMO_USERS[newRole];
+    setCurrentUser(user);
+
+    // Set default view for role
+    if (newRole === 'citizen') setCurrentNav('home');
+    else if (newRole === 'worker') setCurrentNav('dashboard');
+    else if (newRole === 'inspector') setCurrentNav('overview');
+  };
+
+  const handleOpenReportModal = (mode?: 'upload-image' | 'take-photo' | 'upload-video' | 'record-video') => {
+    setReportModalInitialDetection(null);
+    setReportModalInitialMode(mode || 'upload-image');
+    setIsReportModalOpen(true);
+  };
+
+  const handleDetectionProceedToReport = (detection: DetectionResult) => {
+    setReportModalInitialDetection(detection);
+    setIsReportModalOpen(true);
+  };
+
+  const handleReportSubmitted = (newIssue: RoadIssue) => {
+    setIssues(storage.getIssues());
+    setNotifications(storage.getNotifications(activeRole));
+  };
+
+  const handleIssueUpdated = (updated: RoadIssue) => {
+    setIssues(storage.getIssues());
+    setNotifications(storage.getNotifications(activeRole));
+  };
+
+  const handleMarkNotificationsRead = () => {
+    storage.markNotificationsAsRead(activeRole);
+    setNotifications(storage.getNotifications(activeRole));
+  };
+
+  const handleOpenIssueDetail = (issue: RoadIssue) => {
+    setSelectedIssueId(issue.id);
+    if (activeRole === 'citizen') {
+      setCurrentNav('reports');
+    } else if (activeRole === 'worker') {
+      setCurrentNav('tasks');
+    } else {
+      setCurrentNav('issues');
+    }
+  };
 
   return (
-    <ErrorBoundary>
-      <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-300">
-        {/* Navigation Shell */}
-        <Navigation
-          currentTab={currentTab}
-          onSelectTab={setCurrentTab}
-          serverHealth={serverHealth}
-          hasActiveDetection={detectionState.status === 'success'}
-          mobileMenuOpen={mobileMenuOpen}
-          setMobileMenuOpen={setMobileMenuOpen}
-        />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+      {/* 3-Zone Header Contract */}
+      <Header
+        currentUser={currentUser}
+        activeRole={activeRole}
+        onRoleChange={handleRoleChange}
+        onOpenReportModal={() => handleOpenReportModal()}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        notifications={notifications}
+        onMarkNotificationsRead={handleMarkNotificationsRead}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        activeNavTab={currentNav}
+        onSelectNavTab={(tab) => setCurrentNav(tab)}
+        currentTheme={currentTheme}
+        onToggleTheme={handleToggleTheme}
+        serverHealth={serverHealth}
+      />
 
-        {/* Main Content Router */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6">
-          {currentTab === 'landing' && (
+      <div className="flex-1 flex max-w-7xl w-full mx-auto pb-28 lg:pb-8">
+        {/* Role-Specific Sidebar */}
+        {currentNav !== 'landing' && (
+          <Sidebar
+            activeRole={activeRole}
+            currentNav={currentNav}
+            onSelectNav={(nav) => setCurrentNav(nav)}
+            onOpenReportModal={() => handleOpenReportModal()}
+            currentUser={currentUser}
+            onOpenAuth={() => setIsAuthModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+          />
+        )}
+
+        {/* Main Content Viewport */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
+          {/* CITIZEN VIEWS */}
+          {activeRole === 'citizen' && (
+            <>
+              {currentNav === 'home' && (
+                <CustomerDashboard
+                  currentUser={currentUser}
+                  issues={issues}
+                  userLocation={userLocation}
+                  onOpenReportModal={handleOpenReportModal}
+                  onOpenIssueDetails={handleOpenIssueDetail}
+                  onNavigateToMap={() => setCurrentNav('map')}
+                  onNavigateToMyReports={() => setCurrentNav('reports')}
+                  onNavigateToDetection={(mode) => {
+                    setCurrentNav('detection');
+                  }}
+                  onLocationUpdate={(coords) => setUserLocation(coords)}
+                />
+              )}
+
+              {currentNav === 'detection' && (
+                <div className="max-w-5xl mx-auto">
+                  <DetectionStudio
+                    role="citizen"
+                    onProceedToReport={handleDetectionProceedToReport}
+                    onViewOnMap={() => setCurrentNav('map')}
+                  />
+                </div>
+              )}
+
+              {currentNav === 'reports' && (
+                <CustomerReportsView
+                  issues={issues}
+                  currentUser={currentUser}
+                  onOpenReportModal={() => handleOpenReportModal()}
+                  selectedIssueId={selectedIssueId}
+                  onCloseDetail={() => setSelectedIssueId(null)}
+                />
+              )}
+
+              {currentNav === 'map' && (
+                <div className="space-y-4 max-w-6xl mx-auto">
+                  <div className="pb-3 border-b border-slate-800">
+                    <h2 className="text-xl font-bold text-slate-100">Nearby Road Hazards Map</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Explore reported asphalt distress, potholes, and verified repairs in your area.
+                    </p>
+                  </div>
+                  <LeafletMap
+                    issues={issues}
+                    role="citizen"
+                    userLocation={userLocation}
+                    onLocationUpdate={(coords) => setUserLocation(coords)}
+                    onSelectIssue={handleOpenIssueDetail}
+                    height="620px"
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* WORKER VIEWS */}
+          {activeRole === 'worker' && (
+            <>
+              {currentNav === 'dashboard' && currentUser && (
+                <WorkerDashboard
+                  currentUser={currentUser}
+                  issues={issues}
+                  userLocation={userLocation}
+                  onOpenTask={handleOpenIssueDetail}
+                  onNavigateToMap={() => setCurrentNav('map')}
+                  onNavigateToDetection={() => setCurrentNav('detection')}
+                  onLocationUpdate={(coords) => setUserLocation(coords)}
+                />
+              )}
+
+              {currentNav === 'tasks' && currentUser && (
+                <WorkerTasksView
+                  issues={issues}
+                  currentUser={currentUser}
+                  selectedIssueId={selectedIssueId}
+                  onClose={() => setSelectedIssueId(null)}
+                  onIssueUpdated={handleIssueUpdated}
+                />
+              )}
+
+              {currentNav === 'map' && (
+                <div className="space-y-4 max-w-6xl mx-auto">
+                  <div className="pb-3 border-b border-slate-800">
+                    <h2 className="text-xl font-bold text-slate-100">Assigned Inspection Route</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Field navigation map showing your assigned road defect sites.
+                    </p>
+                  </div>
+                  <LeafletMap
+                    issues={issues}
+                    role="worker"
+                    workerId={currentUser?.id}
+                    userLocation={userLocation}
+                    onLocationUpdate={(coords) => setUserLocation(coords)}
+                    onSelectIssue={handleOpenIssueDetail}
+                    height="620px"
+                  />
+                </div>
+              )}
+
+              {currentNav === 'detection' && (
+                <div className="max-w-4xl mx-auto">
+                  <DetectionStudio
+                    role="worker"
+                    onProceedToReport={handleDetectionProceedToReport}
+                    onViewOnMap={() => setCurrentNav('map')}
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* INSPECTOR VIEWS */}
+          {activeRole === 'inspector' && (
+            <>
+              {currentNav === 'overview' && currentUser && (
+                <InspectorOverview
+                  currentUser={currentUser}
+                  issues={issues}
+                  userLocation={userLocation}
+                  onOpenIssue={handleOpenIssueDetail}
+                  onNavigateToMap={() => setCurrentNav('map')}
+                  onNavigateToAssignments={() => setCurrentNav('assignments')}
+                  onNavigateToReports={() => setCurrentNav('reports')}
+                  onLocationUpdate={(coords) => setUserLocation(coords)}
+                />
+              )}
+
+              {currentNav === 'issues' && currentUser && (
+                <RoadIssuesView
+                  issues={issues}
+                  currentUser={currentUser}
+                  onIssueUpdated={handleIssueUpdated}
+                  selectedIssueId={selectedIssueId}
+                />
+              )}
+
+              {currentNav === 'assignments' && currentUser && (
+                <InspectorAssignments
+                  issues={issues}
+                  currentUser={currentUser}
+                  onIssueUpdated={handleIssueUpdated}
+                  onOpenIssue={handleOpenIssueDetail}
+                />
+              )}
+
+              {currentNav === 'map' && (
+                <div className="space-y-4 max-w-7xl mx-auto">
+                  <div className="pb-3 border-b border-slate-800">
+                    <h2 className="text-xl font-bold text-slate-100">Municipal Road Situation Console</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Full citywide geospatial defect monitoring, severity filters, and crew assignment status.
+                    </p>
+                  </div>
+                  <LeafletMap
+                    issues={issues}
+                    role="inspector"
+                    userLocation={userLocation}
+                    onLocationUpdate={(coords) => setUserLocation(coords)}
+                    onSelectIssue={handleOpenIssueDetail}
+                    height="640px"
+                  />
+                </div>
+              )}
+
+              {currentNav === 'reports' && (
+                <InspectorReports issues={issues} />
+              )}
+
+              {currentNav === 'analytics' && (
+                <InspectorAnalytics issues={issues} />
+              )}
+
+              {currentNav === 'detection' && (
+                <div className="max-w-4xl mx-auto">
+                  <DetectionStudio
+                    role="inspector"
+                    onProceedToReport={handleDetectionProceedToReport}
+                    onViewOnMap={() => setCurrentNav('map')}
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* LANDING PAGE VIEW */}
+          {currentNav === 'landing' && (
             <LandingPage
-              onStartDetection={() => setCurrentTab('detect')}
-              onSelectSample={handleSelectSample}
-              samples={samples}
-            />
-          )}
-
-          {currentTab === 'dashboard' && (
-            <DashboardView
-              latestResult={latestResult}
-              serverHealth={serverHealth}
-              onNavigate={setCurrentTab}
-            />
-          )}
-
-          {currentTab === 'detect' && (
-            <DetectionStudio
-              detectionState={detectionState}
-              samples={samples}
-              confidenceSetting={confidenceSetting}
-              setConfidenceSetting={setConfidenceSetting}
-              onFileSelect={handleFileSelect}
-              onDrop={handleDrop}
-              onSelectSample={handleSelectSample}
-              onDetect={handleDetect}
-              onReset={handleResetDetection}
-              settings={settings}
-            />
-          )}
-
-          {currentTab === 'video-detect' && (
-            <VideoDetectionStudio
-              onNavigate={setCurrentTab}
-            />
-          )}
-
-          {currentTab === 'reports' && (
-            <ReportsView
-              latestResult={latestResult}
-              onNavigate={setCurrentTab}
-            />
-          )}
-
-          {currentTab === 'issues' && (
-            <RoadIssuesView />
-          )}
-
-          {currentTab === 'map' && (
-            <MapView onNavigate={setCurrentTab} />
-          )}
-
-          {currentTab === 'analytics' && (
-            <AnalyticsView
-              latestResult={latestResult}
-              onNavigate={setCurrentTab}
-            />
-          )}
-
-          {currentTab === 'settings' && (
-            <SettingsView
-              settings={settings}
-              onUpdateSettings={setSettings}
-              serverHealth={serverHealth}
-              onPingHealth={checkHealth}
+              onEnterRole={(role) => handleRoleChange(role)}
+              onOpenReportModal={() => handleOpenReportModal()}
             />
           )}
         </main>
-
-        {/* Clean Footer (Anti-Slop: quiet, no fake engines) */}
-        <footer className="border-t border-slate-800/80 py-6 px-4 sm:px-8 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-400">ROADGUARD AI</span>
-            <span>·</span>
-            <span>Computer Vision Road Condition Intelligence</span>
-          </div>
-          <div className="flex items-center gap-4 font-mono text-[11px]">
-            <span>Model: Roboflow YOLOv11</span>
-            <span>·</span>
-            <span>Instance Polygon Masks</span>
-          </div>
-        </footer>
       </div>
-    </ErrorBoundary>
+
+      {/* Mobile Bottom Navigation */}
+      <MobileNav
+        activeRole={activeRole}
+        currentNav={currentNav}
+        onSelectNav={(nav) => setCurrentNav(nav)}
+        onOpenReportModal={() => handleOpenReportModal()}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+      />
+
+      {/* Citizen Reporting Modal */}
+      <ReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        currentUser={currentUser}
+        onReportSubmitted={handleReportSubmitted}
+        initialDetection={reportModalInitialDetection}
+        userCurrentLocation={userLocation}
+        initialMode={reportModalInitialMode}
+      />
+
+      {/* Auth & Session Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        onUserChanged={(user, role) => {
+          setCurrentUser(user);
+          handleRoleChange(role);
+        }}
+      />
+
+      {/* Demo Municipal Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onMunicipalitiesUpdated={() => setIssues(storage.getIssues())}
+      />
+    </div>
   );
 }

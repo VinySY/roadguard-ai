@@ -8,3 +8,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Local backups / AI Studio files
+../frontend_backup_before_ai_studio_merge/
+../roadguard-aistudio.zip/
