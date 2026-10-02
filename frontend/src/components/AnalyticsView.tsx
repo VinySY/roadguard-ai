@@ -74,7 +74,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     : 0;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* Header Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div>

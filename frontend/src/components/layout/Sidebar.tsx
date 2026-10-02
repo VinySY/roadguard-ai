@@ -38,9 +38,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
 }) => {
   return (
-    <aside className="hidden lg:flex flex-col w-64 bg-white/80 dark:bg-slate-950/80 border-r border-slate-200 dark:border-slate-800 p-4 shrink-0 h-[calc(100vh-4rem)] sticky top-16 select-none transition-colors">
+    <aside className="hidden lg:flex flex-col w-56 xl:w-60 bg-white/80 dark:bg-slate-950/80 border-r border-slate-200 dark:border-slate-800 p-3 shrink-0 h-full overflow-y-auto select-none transition-colors">
       {/* Role Kicker */}
-      <div className="px-3 py-2 mb-3 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800/80 text-xs">
+      <div className="px-2.5 py-1.5 mb-2.5 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800/80 text-xs">
         <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">
           Current Workspace
         </span>

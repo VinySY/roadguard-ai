@@ -128,7 +128,7 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* Top Header & Task Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
         <div className="flex items-center gap-3">

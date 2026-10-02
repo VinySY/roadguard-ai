@@ -655,7 +655,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
   }, [videoState, renderDetectionOverlay]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* Camera capture modal — video mode */}
       {showCamera && (
         <CameraCapture

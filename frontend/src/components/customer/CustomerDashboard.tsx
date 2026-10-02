@@ -47,24 +47,24 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const recentReports = myReports.slice(0, 3);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* 1. Primary Reporting Hero Card with All 4 Input Options */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-xl">
-        <div className="relative z-10 max-w-3xl space-y-4">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-xl">
+        <div className="relative z-10 max-w-3xl space-y-3">
           <div className="inline-flex items-center gap-2 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Citizen Road Reporting</span>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight text-balance">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white tracking-tight text-balance">
             Report a Road Problem
           </h1>
-          <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
+          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
             Choose how you want to provide evidence. Take a photo, upload an image, record a video, or upload dashcam footage. RoadGuard AI will automatically detect potholes and notify the municipality.
           </p>
 
           {/* All 4 Input Action Options: Clean 2x2 Grid on Mobile, 4-Across on Desktop */}
-          <div className="pt-2 w-full">
+          <div className="pt-1 w-full">
             <EvidenceInputGrid
               isActionOnly={true}
               onSelectMethod={(method) => onOpenReportModal(method)}
@@ -73,7 +73,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
           {/* Quick link to Detection Studio */}
           {onNavigateToDetection && (
-            <div className="pt-1">
+            <div className="pt-0.5">
               <button
                 onClick={() => onNavigateToDetection()}
                 className="text-xs text-amber-400 hover:text-amber-300 font-medium inline-flex items-center gap-1.5 cursor-pointer"
@@ -95,31 +95,31 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       </div>
 
       {/* 2. Personal Statistics Only (Strictly personal, no municipal system telemetry) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Reports Submitted</span>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Reports Submitted</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-slate-800 dark:text-slate-100 tabular-nums">
+            <span className="text-xl sm:text-2xl font-bold font-mono text-slate-800 dark:text-slate-100 tabular-nums">
               {stats.submitted}
             </span>
             <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">by you</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Under Inspection / Repair</span>
+        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Under Inspection / Repair</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">
+            <span className="text-xl sm:text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">
               {stats.underInspection}
             </span>
             <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">active crews</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Resolved & Certified</span>
+        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Resolved & Certified</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums">
+            <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums">
               {stats.resolved}
             </span>
             <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">remediated</span>
@@ -128,7 +128,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       </div>
 
       {/* 3. Recent Reports & Nearby Issues Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
         {/* Your Reports Column */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -224,7 +224,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               userLocation={userLocation}
               onLocationUpdate={onLocationUpdate}
               onSelectIssue={onOpenIssueDetails}
-              height="310px"
+              height="280px"
             />
           </div>
         </div>

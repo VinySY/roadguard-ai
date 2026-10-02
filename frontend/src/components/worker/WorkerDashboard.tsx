@@ -49,15 +49,15 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   );
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 w-full">
       {/* Worker Greeting & Shift Overview */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-0.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-xs text-slate-400 font-mono">Shift Active · Quick Response Crew</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-100">
+          <h1 className="text-lg sm:text-xl font-bold text-slate-100">
             Today's Field Work — {currentUser.name}
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -67,7 +67,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
 
         <button
           onClick={onNavigateToDetection}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm self-start sm:self-auto"
+          className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm self-start sm:self-auto"
         >
           <Wrench className="w-4 h-4" />
           Field Camera & Inspection
@@ -75,38 +75,38 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
       </div>
 
       {/* Action-Oriented Counters (Requirement 13) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Assigned Tasks</span>
-          <span className="text-2xl font-bold font-mono text-slate-100 tabular-nums">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+          <span className="text-xs text-slate-400 block mb-0.5">Assigned Tasks</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-slate-100 tabular-nums">
             {assignedTasks.length}
           </span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Pending Field Inspection</span>
-          <span className="text-2xl font-bold font-mono text-amber-400 tabular-nums">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+          <span className="text-xs text-slate-400 block mb-0.5">Pending Field Inspection</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-amber-400 tabular-nums">
             {pendingTasks.length}
           </span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">In Active Remediation</span>
-          <span className="text-2xl font-bold font-mono text-blue-400 tabular-nums">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+          <span className="text-xs text-slate-400 block mb-0.5">In Active Remediation</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-blue-400 tabular-nums">
             {inRepairTasks.length}
           </span>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Completed / Certified</span>
-          <span className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
+        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+          <span className="text-xs text-slate-400 block mb-0.5">Completed / Certified</span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 tabular-nums">
             {completedTasks.length}
           </span>
         </div>
       </div>
 
       {/* Priority Tasks Grid & Worker Assigned Route Map */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">
         {/* Priority Field Queue (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
           <div className="flex items-center justify-between">

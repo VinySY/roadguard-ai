@@ -25,7 +25,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onPingHealth,
 }) => {
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 w-full">
       <div className="pb-4 border-b border-slate-800">
         <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider">
           PREFERENCES & DIAGNOSTICS

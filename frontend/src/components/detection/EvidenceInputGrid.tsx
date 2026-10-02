@@ -112,7 +112,7 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
               key={opt.id}
               type="button"
               onClick={() => handleClick(opt.id)}
-              className={`group relative flex flex-col items-center justify-center text-center w-full h-[124px] sm:h-[132px] p-3 sm:p-4 rounded-2xl border transition-all duration-150 select-none active:scale-[0.98] ${
+              className={`group relative flex flex-col items-center justify-center text-center w-full h-[100px] sm:h-[112px] p-2.5 sm:p-3 rounded-xl border transition-all duration-150 select-none active:scale-[0.98] ${
                 isSelected
                   ? 'bg-amber-500/10 dark:bg-slate-900 border-amber-500 ring-2 ring-amber-500/25 shadow-lg shadow-amber-500/10'
                   : 'bg-white dark:bg-slate-900/80 hover:bg-slate-50 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
@@ -120,7 +120,7 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
             >
               {/* Icon Container (Identical size, shape, alignment across all 4) */}
               <div
-                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mb-2.5 border transition-transform duration-150 group-hover:scale-105 shrink-0 ${
+                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center mb-1.5 border transition-transform duration-150 group-hover:scale-105 shrink-0 ${
                   isSelected
                     ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-md'
                     : 'bg-amber-500/10 border-amber-500/20 text-amber-500 dark:text-amber-400'
@@ -131,7 +131,7 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
 
               {/* Title (Symmetrical font size, identical line height, centered) */}
               <span
-                className={`text-xs sm:text-sm font-semibold tracking-tight block w-full truncate px-1 transition-colors leading-tight ${
+                className={`text-xs font-semibold tracking-tight block w-full truncate px-1 transition-colors leading-tight ${
                   isSelected
                     ? 'text-amber-600 dark:text-amber-400 font-bold'
                     : 'text-slate-800 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-slate-50'
@@ -141,7 +141,7 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
               </span>
 
               {/* Subtitle (Uniform text length, identical spacing and font) */}
-              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 block w-full truncate px-1 mt-1 transition-colors leading-tight">
+              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 block w-full truncate px-1 mt-0.5 transition-colors leading-tight">
                 {opt.subtitle}
               </span>
             </button>

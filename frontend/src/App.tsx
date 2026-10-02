@@ -123,7 +123,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="h-full w-full overflow-hidden bg-slate-50 dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* 3-Zone Header Contract */}
       <Header
         currentUser={currentUser}
@@ -141,7 +141,7 @@ export default function App() {
         serverHealth={serverHealth}
       />
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto pb-28 lg:pb-8">
+      <div className="flex flex-1 w-full overflow-hidden">
         {/* Role-Specific Sidebar */}
         {currentNav !== 'landing' && (
           <Sidebar
@@ -155,8 +155,8 @@ export default function App() {
           />
         )}
 
-        {/* Main Content Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
+        {/* Main Content Viewport – independently scrollable */}
+        <main className="flex-1 h-full overflow-y-auto min-w-0 p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">
           {/* CITIZEN VIEWS */}
           {activeRole === 'citizen' && (
             <>
@@ -177,7 +177,7 @@ export default function App() {
               )}
 
               {currentNav === 'detection' && (
-                <div className="max-w-5xl mx-auto">
+                <div className="w-full">
                   <DetectionStudio
                     role="citizen"
                     onProceedToReport={handleDetectionProceedToReport}
@@ -197,7 +197,7 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 max-w-6xl mx-auto">
+                <div className="space-y-4 w-full">
                   <div className="pb-3 border-b border-slate-800">
                     <h2 className="text-xl font-bold text-slate-100">Nearby Road Hazards Map</h2>
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -243,7 +243,7 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 max-w-6xl mx-auto">
+                <div className="space-y-4 w-full">
                   <div className="pb-3 border-b border-slate-800">
                     <h2 className="text-xl font-bold text-slate-100">Assigned Inspection Route</h2>
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -263,7 +263,7 @@ export default function App() {
               )}
 
               {currentNav === 'detection' && (
-                <div className="max-w-4xl mx-auto">
+                <div className="w-full">
                   <DetectionStudio
                     role="worker"
                     onProceedToReport={handleDetectionProceedToReport}
@@ -309,7 +309,7 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 max-w-7xl mx-auto">
+                <div className="space-y-4 w-full">
                   <div className="pb-3 border-b border-slate-800">
                     <h2 className="text-xl font-bold text-slate-100">Municipal Road Situation Console</h2>
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -336,7 +336,7 @@ export default function App() {
               )}
 
               {currentNav === 'detection' && (
-                <div className="max-w-4xl mx-auto">
+                <div className="w-full">
                   <DetectionStudio
                     role="inspector"
                     onProceedToReport={handleDetectionProceedToReport}
