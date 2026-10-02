@@ -1,4 +1,6 @@
 import React from 'react';
+import heroRoadImage from '../assets/images/hero_road_inspection_1790353557267.jpg';
+import potholeSampleImage from '../assets/images/pothole_asphalt_sample_1790353573527.jpg';
 import { 
   ArrowRight, 
   Scan, 
@@ -36,7 +38,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Subtle background image overlay with high-contrast scrim */}
         <div className="absolute inset-0 z-0">
           <img
-            src="/src/assets/images/hero_road_inspection_1790353557267.jpg"
+            src={heroRoadImage}
             alt="Asphalt roadway pavement inspection"
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover object-center opacity-30 mix-blend-luminosity filter contrast-125"
@@ -183,7 +185,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="relative rounded-xl overflow-hidden border border-slate-700/80 aspect-[4/3] bg-slate-950 flex items-center justify-center">
             <img
-              src="/src/assets/images/pothole_asphalt_sample_1790353573527.jpg"
+              src={potholeSampleImage}
               alt="Close-up asphalt pothole inspection"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover"
