@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RoadIssue, DetectionResult, LocationCoordinates, Municipality, User } from '../../types';
 import { storage } from '../../services/storage';
 import { matchMunicipality, sendMunicipalEmailDispatch, DispatchReceipt } from '../../services/municipality';
