@@ -1,0 +1,11 @@
+{
+  "name": "RoadGuard AI",
+  "description": "AI-powered municipal road management and pothole detection platform for citizens, field workers, and municipal inspectors.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

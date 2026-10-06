@@ -1,357 +1,309 @@
 import { DetectionResult, BoundingBox, SeverityLevel } from '../types';
+import { getApiUrl } from '../config/api';
 
 export interface DetectionOptions {
   confidenceThreshold?: number;
+  overlapThreshold?: number;
   modelEndpoint?: string;
   apiKey?: string;
 }
 
 /**
+ * Normalizes detection class string (e.g. "pothole" -> "Pothole")
+ */
+function formatClassName(className?: string): string {
+  if (!className) return 'Pothole';
+  const trimmed = className.trim();
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+/**
+ * Maps server/model severity to frontend SeverityLevel
+ */
+function mapSeverity(serverSeverity?: string, confidence = 0.8): SeverityLevel {
+  const s = (serverSeverity || '').toLowerCase();
+  if (s === 'critical') return 'critical';
+  if (s === 'high') return 'high';
+  if (s === 'moderate' || s === 'medium') return 'medium';
+  if (s === 'minor' || s === 'low') return 'low';
+  if (confidence >= 0.85) return 'critical';
+  if (confidence >= 0.65) return 'high';
+  return 'medium';
+}
+
+/**
+ * Converts any image source (File, Blob, base64 data URL, blob URL, sample URL)
+ * into a FormData object suitable for POST /api/detect.
+ */
+async function buildImageFormData(imageSource: File | Blob | string): Promise<FormData> {
+  const formData = new FormData();
+
+  if (imageSource instanceof File) {
+    formData.append('image', imageSource, imageSource.name || 'road_upload.jpg');
+    return formData;
+  }
+
+  if (imageSource instanceof Blob) {
+    formData.append('image', imageSource, 'road_upload.jpg');
+    return formData;
+  }
+
+  if (typeof imageSource === 'string') {
+    // 1. Data URL or Blob URL
+    if (imageSource.startsWith('data:') || imageSource.startsWith('blob:')) {
+      const res = await fetch(imageSource);
+      const blob = await res.blob();
+      formData.append('image', blob, 'road_upload.jpg');
+      return formData;
+    }
+
+    // 2. Relative or absolute HTTP URL (e.g. /src/assets/images/... or /api/samples/...)
+    if (imageSource.startsWith('http://') || imageSource.startsWith('https://') || imageSource.startsWith('/')) {
+      const res = await fetch(imageSource);
+      const blob = await res.blob();
+      const filename = imageSource.split('/').pop() || 'sample.jpg';
+      formData.append('image', blob, filename);
+      return formData;
+    }
+
+    // 3. Raw sample filename from test dataset (e.g. 101_jpg.rf...)
+    formData.append('sampleFilename', imageSource);
+    return formData;
+  }
+
+  throw new Error('Unsupported image source type for road detection.');
+}
+
+/**
  * Analyzes an image for road surface distress / potholes.
- * Integrates with Roboflow Inference API when API key is provided,
- * and includes high-precision image canvas contour analysis so image detection
- * works reliably and deterministically without ever breaking.
+ * Connects directly to backend /api/detect (which runs the Roboflow YOLOv11 model).
  */
 export async function detectPotholesInImage(
   imageSource: File | Blob | string,
   options: DetectionOptions = {}
 ): Promise<DetectionResult> {
-  const apiKey = options.apiKey || (import.meta as any).env?.VITE_ROBOFLOW_API_KEY;
-  const endpoint = options.modelEndpoint || 'https://detect.roboflow.com/pothole-detection/4';
+  const formData = await buildImageFormData(imageSource);
 
-  let dataUrl: string;
+  const confidence = options.confidenceThreshold !== undefined ? Math.round(options.confidenceThreshold) : 20;
+  const overlap = options.overlapThreshold !== undefined ? Math.round(options.overlapThreshold) : 30;
 
-  if (typeof imageSource === 'string') {
-    dataUrl = imageSource;
-  } else {
-    dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(imageSource);
+  const url = getApiUrl(`/api/detect?confidence=${confidence}&overlap=${overlap}`);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
     });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    throw new Error(`Could not connect to RoadGuard detection backend (${url}): ${msg}`);
   }
 
-  // If a real Roboflow API key is configured, call Roboflow Inference API
-  if (apiKey) {
+  if (!response.ok) {
+    let errorDetails = `HTTP ${response.status} ${response.statusText}`;
     try {
-      const base64Data = dataUrl.split(',')[1] || dataUrl;
-      const response = await fetch(`${endpoint}?api_key=${apiKey}&confidence=40`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: base64Data,
-      });
-
-      if (response.ok) {
-        const json = await response.json();
-        const predictions = json.predictions || [];
-
-        const boxes: BoundingBox[] = predictions.map((p: any) => ({
-          x: p.x / (json.image?.width || 640),
-          y: p.y / (json.image?.height || 640),
-          width: p.width / (json.image?.width || 640),
-          height: p.height / (json.image?.height || 640),
-          confidence: Math.round(p.confidence * 100) / 100,
-          class: p.class || 'Pothole',
-        }));
-
-        const count = boxes.length;
-        const avgConfidence = count > 0 ? boxes.reduce((acc, b) => acc + b.confidence, 0) / count : 0.85;
-
-        let severity: SeverityLevel = 'low';
-        if (count >= 3 || boxes.some((b) => b.width * b.height > 0.12)) {
-          severity = 'critical';
-        } else if (count >= 2 || boxes.some((b) => b.width * b.height > 0.06)) {
-          severity = 'high';
-        } else if (count === 1) {
-          severity = 'medium';
-        }
-
-        return {
-          potholeCount: count,
-          severity,
-          confidence: Math.round(avgConfidence * 100) / 100,
-          boxes,
-          imageUrl: dataUrl,
-          processedAt: new Date().toISOString(),
-          roadConditionIndex: Math.max(15, Math.round(100 - count * 22)),
-          recommendedAction:
-            severity === 'critical'
-              ? 'Urgent emergency cold-mix remediation required'
-              : severity === 'high'
-              ? 'Priority scheduling for asphalt surface patching'
-              : 'Routine pavement maintenance log',
-        };
-      }
-    } catch (err) {
-      console.warn('Roboflow API call encountered error, falling back to local vision analysis', err);
+      const errJson = await response.json();
+      errorDetails = errJson.error || errJson.message || errJson.details || errorDetails;
+    } catch {
+      // not JSON
     }
+    throw new Error(`Road detection service error: ${errorDetails}`);
   }
 
-  // Local Computer Vision Analysis using Canvas pixel luminance & contrast clustering
-  return analyzeImageLocally(dataUrl);
-}
+  const json = await response.json();
+  const predictions = json.predictions || [];
+  const imageWidth = json.image?.width || 640;
+  const imageHeight = json.image?.height || 640;
 
-/**
- * High-fidelity computer vision analysis running directly in the browser.
- * Extracts visual gradient boundaries, dark asphalt cavities, and edge density.
- */
-function analyzeImageLocally(dataUrl: string): Promise<DetectionResult> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const width = (canvas.width = 400);
-      const height = (canvas.height = 300);
-      const ctx = canvas.getContext('2d');
+  // Convert Roboflow bounding box coordinates (center-based pixels) to normalized [0, 1] top-left coordinates
+  const boxes: BoundingBox[] = predictions.map((p: any, idx: number) => {
+    const rawX = typeof p.x === 'number' ? p.x : 0;
+    const rawY = typeof p.y === 'number' ? p.y : 0;
+    const rawW = typeof p.width === 'number' ? p.width : 0;
+    const rawH = typeof p.height === 'number' ? p.height : 0;
 
-      if (!ctx) {
-        // Fallback default detection if canvas context fails
-        resolve(createDefaultDetection(dataUrl, 1));
-        return;
-      }
+    // Center to top-left in original pixel space
+    const leftPx = rawX - rawW / 2;
+    const topPx = rawY - rawH / 2;
 
-      ctx.drawImage(img, 0, 0, width, height);
-      const imageData = ctx.getImageData(0, 0, width, height);
-      const data = imageData.data;
+    // Normalized [0, 1] bounds
+    const normLeft = Math.max(0, Math.min(1, leftPx / imageWidth));
+    const normTop = Math.max(0, Math.min(1, topPx / imageHeight));
+    const normW = Math.max(0, Math.min(1 - normLeft, rawW / imageWidth));
+    const normH = Math.max(0, Math.min(1 - normTop, rawH / imageHeight));
 
-      // Scan lower two-thirds of image (typical road surface area)
-      const startY = Math.floor(height * 0.35);
-      let darkClusterCount = 0;
-      const detectedRegions: { x: number; y: number; w: number; h: number; darkness: number }[] = [];
+    const boxSeverity = mapSeverity(p.severity, p.confidence);
 
-      const gridSize = 25;
-      for (let y = startY; y < height - gridSize; y += gridSize) {
-        for (let x = gridSize; x < width - gridSize; x += gridSize) {
-          let sumLum = 0;
-          let pixelCount = 0;
-          let variance = 0;
-
-          for (let dy = 0; dy < gridSize; dy += 5) {
-            for (let dx = 0; dx < gridSize; dx += 5) {
-              const idx = ((y + dy) * width + (x + dx)) * 4;
-              const r = data[idx];
-              const g = data[idx + 1];
-              const b = data[idx + 2];
-              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-              sumLum += lum;
-              pixelCount++;
-            }
-          }
-
-          const avgLum = sumLum / pixelCount;
-          // Road asphalt cavities are typically darker than surrounding sunlit pavement
-          if (avgLum < 85) {
-            darkClusterCount++;
-            detectedRegions.push({
-              x: x / width,
-              y: y / height,
-              w: 0.22,
-              h: 0.18,
-              darkness: avgLum,
-            });
-          }
-        }
-      }
-
-      // Group nearby dark regions or create coherent bounding boxes
-      let boxes: BoundingBox[] = [];
-
-      if (detectedRegions.length > 0) {
-        // Select up to 3 most salient bounding boxes
-        const sorted = detectedRegions.sort((a, b) => a.darkness - b.darkness);
-        const topClusters = sorted.slice(0, Math.min(3, Math.max(1, Math.ceil(sorted.length / 4))));
-
-        boxes = topClusters.map((reg, idx) => ({
-          x: Math.min(0.75, Math.max(0.15, reg.x + 0.05)),
-          y: Math.min(0.75, Math.max(0.35, reg.y + 0.04)),
-          width: Math.min(0.35, Math.max(0.18, reg.w)),
-          height: Math.min(0.28, Math.max(0.15, reg.h)),
-          confidence: Math.round((0.88 + idx * 0.03) * 100) / 100,
-          class: idx === 0 ? 'Severe Pothole' : 'Asphalt Distress',
-        }));
-      } else {
-        // Fallback default detection box centered on roadway
-        boxes = [
-          {
-            x: 0.48,
-            y: 0.58,
-            width: 0.28,
-            height: 0.22,
-            confidence: 0.91,
-            class: 'Pothole',
-          },
-        ];
-      }
-
-      const count = boxes.length;
-      let severity: SeverityLevel = count >= 3 ? 'critical' : count >= 2 ? 'high' : 'medium';
-
-      resolve({
-        potholeCount: count,
-        severity,
-        confidence: Math.round((boxes.reduce((acc, b) => acc + b.confidence, 0) / count) * 100) / 100,
-        boxes,
-        imageUrl: dataUrl,
-        processedAt: new Date().toISOString(),
-        roadConditionIndex: Math.max(20, 100 - count * 24),
-        recommendedAction:
-          severity === 'critical'
-            ? 'Emergency repair team dispatch required'
-            : severity === 'high'
-            ? 'Assigned for priority field inspection within 24h'
-            : 'Scheduled for standard municipal maintenance cycle',
-      });
+    return {
+      id: p.id || `pothole-${idx + 1}`,
+      x: normLeft,
+      y: normTop,
+      width: normW,
+      height: normH,
+      confidence: Math.round((p.confidence || 0) * 100) / 100,
+      class: formatClassName(p.class),
+      points: Array.isArray(p.points) ? p.points : null,
+      severity: boxSeverity,
+      rawX,
+      rawY,
+      rawWidth: rawW,
+      rawHeight: rawH,
+      imageWidth,
+      imageHeight,
     };
-
-    img.onerror = () => {
-      resolve(createDefaultDetection(dataUrl, 1));
-    };
-
-    img.src = dataUrl;
   });
+
+  const count = boxes.length;
+  const avgConfidence = count > 0
+    ? Math.round((boxes.reduce((acc, b) => acc + b.confidence, 0) / count) * 100) / 100
+    : 0;
+
+  // Determine overall severity
+  let severity: SeverityLevel = 'low';
+  if (json.analytics?.overallRiskLevel) {
+    const risk = json.analytics.overallRiskLevel.toLowerCase();
+    severity = risk === 'critical' ? 'critical' : risk === 'high' ? 'high' : risk === 'medium' ? 'medium' : 'low';
+  } else if (count >= 3 || boxes.some((b) => b.severity === 'critical')) {
+    severity = 'critical';
+  } else if (count >= 2 || boxes.some((b) => b.severity === 'high')) {
+    severity = 'high';
+  } else if (count === 1) {
+    severity = boxes[0]?.severity || 'medium';
+  }
+
+  // Calculate road condition index (0 - 100)
+  const roadConditionIndex = json.analytics?.damagePercentage !== undefined
+    ? Math.max(5, Math.min(100, Math.round(100 - json.analytics.damagePercentage * 3.5)))
+    : Math.max(10, Math.min(100, Math.round(100 - count * 22)));
+
+  const recommendedAction =
+    count === 0
+      ? 'No immediate roadway repair needed — pavement surface clear'
+      : severity === 'critical'
+      ? 'Urgent emergency cold-mix remediation required'
+      : severity === 'high'
+      ? 'Priority scheduling for asphalt surface patching'
+      : 'Routine pavement maintenance log';
+
+  const previewUrl = typeof imageSource === 'string' ? imageSource : undefined;
+
+  return {
+    potholeCount: count,
+    severity,
+    confidence: avgConfidence,
+    boxes,
+    imageUrl: previewUrl,
+    image: { width: imageWidth, height: imageHeight },
+    analytics: json.analytics,
+    location: json.location || null,
+    processedAt: new Date().toISOString(),
+    roadConditionIndex,
+    recommendedAction,
+  };
 }
 
 /**
  * Analyzes a video for roadway surface distress / potholes.
- * Sends video to existing backend /api/detect/video endpoint via FormData,
- * and seamlessly falls back to frame canvas extraction and analysis
- * if running in standalone Vite mode.
+ * Sends video to backend /api/detect/video endpoint via FormData.
  */
 export async function detectPotholesInVideo(
   videoSource: File | Blob | string,
   options: DetectionOptions = {}
 ): Promise<DetectionResult> {
-  // If it's a File or Blob, try the backend /api/detect/video endpoint first
   if (typeof videoSource !== 'string') {
-    try {
-      const formData = new FormData();
-      formData.append('video', videoSource, 'road_inspection.webm');
+    const formData = new FormData();
+    const filename = videoSource instanceof File ? videoSource.name : 'road_inspection.webm';
+    formData.append('video', videoSource, filename);
 
-      const response = await fetch('/api/detect/video', {
+    const confidence = options.confidenceThreshold !== undefined ? Math.round(options.confidenceThreshold) : 20;
+    const url = getApiUrl(`/api/detect/video?confidence=${confidence}`);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
         method: 'POST',
         body: formData,
       });
-
-      if (response.ok) {
-        const json = await response.json();
-        if (json && (json.potholeCount !== undefined || json.predictions)) {
-          const count = json.potholeCount ?? (json.predictions?.length || 2);
-          const severity: SeverityLevel =
-            json.severity || (count >= 3 ? 'critical' : count >= 2 ? 'high' : 'medium');
-          return {
-            potholeCount: count,
-            severity,
-            confidence: json.confidence || 0.91,
-            boxes: json.boxes || [
-              { x: 0.42, y: 0.65, width: 0.28, height: 0.2, confidence: 0.92, class: 'Pothole' },
-              { x: 0.68, y: 0.52, width: 0.18, height: 0.15, confidence: 0.86, class: 'Pavement Crack' },
-            ],
-            imageUrl: json.frameUrl || json.imageUrl || '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg',
-            processedAt: new Date().toISOString(),
-            roadConditionIndex: json.roadConditionIndex || Math.max(25, 100 - count * 20),
-            recommendedAction:
-              severity === 'critical'
-                ? 'Urgent municipal dispatch required'
-                : 'Priority field inspection queued',
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('Endpoint /api/detect/video not available, extracting keyframe locally', err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Network error';
+      throw new Error(`Could not connect to video detection service (${url}): ${msg}`);
     }
+
+    if (!response.ok) {
+      let errorDetails = `HTTP ${response.status} ${response.statusText}`;
+      try {
+        const errJson = await response.json();
+        errorDetails = errJson.error || errJson.message || errJson.details || errorDetails;
+      } catch {
+        // not JSON
+      }
+      throw new Error(`Video detection service error: ${errorDetails}`);
+    }
+
+    const json = await response.json();
+    const totalDetections = json.analytics?.uniquePotholeCount ?? json.analytics?.totalDetections ?? 0;
+    const worstRisk = json.analytics?.worstRiskLevel || json.overall_risk || 'MEDIUM';
+    const severity = mapSeverity(worstRisk);
+
+    // Extract boxes from first frame with detections (or aggregate)
+    const framesWithDetections = (json.frames || []).filter((f: any) => f.predictions && f.predictions.length > 0);
+    const primaryFrame = framesWithDetections[0] || json.frames?.[0];
+    const rawPredictions = primaryFrame?.predictions || [];
+    const imageWidth = json.video?.width || primaryFrame?.image?.width || 640;
+    const imageHeight = json.video?.height || primaryFrame?.image?.height || 360;
+
+    const boxes: BoundingBox[] = rawPredictions.map((p: any, idx: number) => {
+      const rawX = typeof p.x === 'number' ? p.x : 0;
+      const rawY = typeof p.y === 'number' ? p.y : 0;
+      const rawW = typeof p.width === 'number' ? p.width : 0;
+      const rawH = typeof p.height === 'number' ? p.height : 0;
+
+      const leftPx = rawX - rawW / 2;
+      const topPx = rawY - rawH / 2;
+
+      return {
+        id: p.id || `video-pothole-${idx + 1}`,
+        x: Math.max(0, Math.min(1, leftPx / imageWidth)),
+        y: Math.max(0, Math.min(1, topPx / imageHeight)),
+        width: Math.max(0, Math.min(1, rawW / imageWidth)),
+        height: Math.max(0, Math.min(1, rawH / imageHeight)),
+        confidence: Math.round((p.confidence || 0.85) * 100) / 100,
+        class: formatClassName(p.class),
+        points: Array.isArray(p.points) ? p.points : null,
+        severity: mapSeverity(p.severity, p.confidence),
+        rawX,
+        rawY,
+        rawWidth: rawW,
+        rawHeight: rawH,
+        imageWidth,
+        imageHeight,
+      };
+    });
+
+    const avgConfidence = json.analytics?.maxConfidence || 0.85;
+
+    return {
+      potholeCount: totalDetections,
+      severity,
+      confidence: Math.round(avgConfidence * 100) / 100,
+      boxes,
+      processedAt: new Date().toISOString(),
+      roadConditionIndex: Math.max(15, Math.round(100 - totalDetections * 18)),
+      recommendedAction:
+        totalDetections === 0
+          ? 'No road defects detected across video frames'
+          : severity === 'critical'
+          ? 'Urgent municipal field dispatch required for transit corridor'
+          : 'Priority field inspection queued for defect locations',
+      analytics: {
+        totalDetected: totalDetections,
+        maxConfidence: avgConfidence,
+        damagePercentage: json.analytics?.averageDamagePercentage || 0,
+        overallRiskLevel: worstRisk,
+      },
+    };
   }
 
-  // Extract keyframe from video and analyze using image detection pipeline
-  return extractAndAnalyzeVideoKeyframe(videoSource);
-}
-
-/**
- * Extracts a representative road surface frame from a video and analyzes it.
- */
-function extractAndAnalyzeVideoKeyframe(videoSource: File | Blob | string): Promise<DetectionResult> {
-  return new Promise((resolve) => {
-    const videoUrl = typeof videoSource === 'string' ? videoSource : URL.createObjectURL(videoSource);
-    const video = document.createElement('video');
-    video.src = videoUrl;
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.playsInline = true;
-
-    video.onloadeddata = () => {
-      // Seek to 1 second or 30% into video
-      video.currentTime = Math.min(1.5, (video.duration || 3) * 0.3);
-    };
-
-    video.onseeked = async () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 360;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const frameDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-
-          const analysis = await analyzeImageLocally(frameDataUrl);
-          // Video frames usually detect multiple dynamic defects along the corridor
-          const count = Math.max(analysis.potholeCount, 2);
-          const severity: SeverityLevel = count >= 3 ? 'critical' : 'high';
-
-          resolve({
-            ...analysis,
-            potholeCount: count,
-            severity,
-            recommendedAction:
-              'Multiple road surface defects detected along transit corridor. Priority inspection logged.',
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn('Canvas frame extraction issue, using default analysis', err);
-      }
-
-      resolve(
-        createDefaultDetection(
-          '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg',
-          2
-        )
-      );
-    };
-
-    video.onerror = () => {
-      resolve(
-        createDefaultDetection(
-          '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg',
-          2
-        )
-      );
-    };
-  });
-}
-
-function createDefaultDetection(imageUrl: string, count: number): DetectionResult {
-
-  return {
-    potholeCount: count,
-    severity: 'high',
-    confidence: 0.89,
-    boxes: [
-      {
-        x: 0.45,
-        y: 0.55,
-        width: 0.26,
-        height: 0.2,
-        confidence: 0.89,
-        class: 'Pothole',
-      },
-    ],
-    imageUrl,
-    processedAt: new Date().toISOString(),
-    roadConditionIndex: 45,
-    recommendedAction: 'Priority field inspection within 24h',
-  };
+  throw new Error('Video source must be a valid video file or recording blob.');
 }

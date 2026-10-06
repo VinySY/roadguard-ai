@@ -1,0 +1,6 @@
+{
+  "name": "RoadGuard AI — Pothole Detection & Road Intelligence",
+  "description": "AI-powered pothole detection and road-condition monitoring platform powered by YOLOv11 instance segmentation and computer vision.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

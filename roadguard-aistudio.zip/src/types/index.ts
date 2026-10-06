@@ -19,27 +19,13 @@ export type IssueStatus =
   | 'in_repair'
   | 'resolved';
 
-export interface Point {
-  x: number;
-  y: number;
-}
-
 export interface BoundingBox {
-  id?: string;
-  x: number; // normalized top-left x (0 to 1)
-  y: number; // normalized top-left y (0 to 1)
-  width: number; // normalized width (0 to 1)
-  height: number; // normalized height (0 to 1)
+  x: number; // center x (0 to 1) or pixel
+  y: number; // center y (0 to 1) or pixel
+  width: number;
+  height: number;
   confidence: number;
   class: string;
-  points?: Point[] | null;
-  severity?: SeverityLevel;
-  rawX?: number; // original Roboflow center x
-  rawY?: number; // original Roboflow center y
-  rawWidth?: number; // original Roboflow width
-  rawHeight?: number; // original Roboflow height
-  imageWidth?: number;
-  imageHeight?: number;
 }
 
 export interface DetectionResult {
@@ -48,17 +34,9 @@ export interface DetectionResult {
   confidence: number;
   boxes: BoundingBox[];
   imageUrl?: string;
-  image?: { width: number; height: number };
-  analytics?: {
-    totalDetected: number;
-    maxConfidence: number;
-    damagePercentage: number;
-    overallRiskLevel: string;
-  };
   processedAt: string;
   roadConditionIndex?: number; // 0-100
   recommendedAction?: string;
-  location?: LocationCoordinates | null;
 }
 
 export interface LocationCoordinates {
@@ -156,24 +134,3 @@ export interface AppNotification {
   severity?: SeverityLevel;
   actionUrl?: string;
 }
-
-// Re-export Roboflow and Video detection types for unified access
-export type {
-  Point,
-  PotholeSeverity,
-  PotholePrediction,
-  ImageMetadata,
-  DetectionAnalytics,
-  SampleImage,
-  ServerHealth,
-  DetectionState,
-  NavigationTab,
-  VideoMetadata,
-  VideoProcessingInfo,
-  VideoAnalytics,
-  FrameDetectionResult,
-  VideoDetectionResponse,
-  VideoDetectOptions,
-  AnalyticsSummaryResponse,
-  AppSettings,
-} from './detection';
