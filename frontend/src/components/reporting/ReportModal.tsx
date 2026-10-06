@@ -65,6 +65,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   // Analysis / Detection state
   const [detection, setDetection] = useState<DetectionResult | null>(initialDetection || null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [videoCurrentTime, setVideoCurrentTime] = useState<number>(0);
+  const reportVideoRef = useRef<HTMLVideoElement>(null);
 
   // Location state
   const [location, setLocation] = useState<LocationCoordinates>(
@@ -432,38 +434,187 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 <div className="p-12 rounded-xl bg-slate-950 border border-slate-800 text-center flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 text-amber-400 animate-spin mb-3" />
                   <h5 className="text-sm font-semibold text-slate-200">
-                    {evidenceType === 'video' ? 'Analyzing Road Video Stream...' : 'Analyzing Road Surface...'}
+                    {evidenceType === 'video' ? 'Analyzing Road Video Stream with Roboflow...' : 'Analyzing Road Surface with Roboflow...'}
                   </h5>
                   <p className="text-xs text-slate-400 mt-1 font-mono">
-                    Scanning asphalt distress, depth contours, and pavement fissure margins
+                    Executing YOLOv11 segmentation & localizing roadway distress coordinates
                   </p>
                 </div>
               ) : detection ? (
                 <div className="space-y-3">
+                  {/* Visual Evidence Preview with Bounding Box & Polygon Overlay */}
+                  <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 p-2 sm:p-3 flex items-center justify-center min-h-[220px]">
+                    <div className="relative inline-block max-w-full">
+                      {evidenceType === 'video' ? (
+                        <video
+                          ref={reportVideoRef}
+                          src={evidenceUrl || detection.videoUrl || undefined}
+                          className="max-h-[300px] max-w-full w-auto h-auto block rounded-lg mx-auto shadow-md"
+                          onTimeUpdate={(e) => setVideoCurrentTime((e.target as HTMLVideoElement).currentTime)}
+                          onSeeked={(e) => setVideoCurrentTime((e.target as HTMLVideoElement).currentTime)}
+                          controls
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={evidenceUrl || detection.imageUrl || '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg'}
+                          alt="Road Incident Evidence"
+                          className="max-h-[300px] max-w-full w-auto h-auto block rounded-lg mx-auto shadow-md"
+                        />
+                      )}
+
+                      {/* Overlays */}
+                      {(() => {
+                        let boxesToRender: typeof detection.boxes = detection.boxes || [];
+                        if (evidenceType === 'video' && detection.videoFrames && detection.videoFrames.length > 0) {
+                          let closest = detection.videoFrames[0];
+                          let minDiff = Infinity;
+                          for (const f of detection.videoFrames) {
+                            const diff = Math.abs(f.timestamp - videoCurrentTime);
+                            if (diff < minDiff) {
+                              minDiff = diff;
+                              closest = f;
+                            }
+                          }
+                          if (closest && minDiff <= 1.2 && closest.boxes.length > 0) {
+                            boxesToRender = closest.boxes;
+                          }
+                        }
+
+                        if (boxesToRender.length === 0) return null;
+
+                        return (
+                          <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg">
+                            {/* SVG Polygons */}
+                            <svg
+                              className="absolute inset-0 w-full h-full pointer-events-none"
+                              viewBox={`0 0 ${detection.image?.width || 640} ${detection.image?.height || (evidenceType === 'video' ? 360 : 640)}`}
+                              preserveAspectRatio="none"
+                            >
+                              {boxesToRender.map((box, index) => {
+                                if (!box.points || box.points.length < 3) return null;
+                                const pointsStr = box.points.map((pt) => `${pt.x},${pt.y}`).join(' ');
+                                const strokeColor =
+                                  box.severity === 'critical'
+                                    ? '#EF4444'
+                                    : box.severity === 'high'
+                                    ? '#F97316'
+                                    : '#F59E0B';
+                                const fillColor =
+                                  box.severity === 'critical'
+                                    ? 'rgba(239, 68, 68, 0.32)'
+                                    : box.severity === 'high'
+                                    ? 'rgba(249, 115, 22, 0.28)'
+                                    : 'rgba(245, 158, 11, 0.25)';
+
+                                return (
+                                  <polygon
+                                    key={`rep-poly-${box.id || index}`}
+                                    points={pointsStr}
+                                    fill={fillColor}
+                                    stroke={strokeColor}
+                                    strokeWidth="2.5"
+                                    strokeLinejoin="round"
+                                  />
+                                );
+                              })}
+                            </svg>
+
+                            {/* Bounding Boxes */}
+                            {boxesToRender.map((box, index) => {
+                              const left = `${box.x * 100}%`;
+                              const top = `${box.y * 100}%`;
+                              const width = `${box.width * 100}%`;
+                              const height = `${box.height * 100}%`;
+
+                              const colorTheme =
+                                box.severity === 'critical'
+                                  ? {
+                                      border: 'border-rose-500',
+                                      bg: 'bg-rose-500/20',
+                                      badge: 'bg-rose-600 text-white',
+                                      corner: 'border-rose-400',
+                                    }
+                                  : box.severity === 'high'
+                                  ? {
+                                      border: 'border-orange-500',
+                                      bg: 'bg-orange-500/20',
+                                      badge: 'bg-orange-600 text-white',
+                                      corner: 'border-orange-400',
+                                    }
+                                  : {
+                                      border: 'border-amber-400',
+                                      bg: 'bg-amber-400/20',
+                                      badge: 'bg-amber-500 text-slate-950',
+                                      corner: 'border-amber-300',
+                                    };
+
+                              return (
+                                <div
+                                  key={`rep-box-${box.id || index}`}
+                                  style={{
+                                    position: 'absolute',
+                                    left,
+                                    top,
+                                    width,
+                                    height,
+                                  }}
+                                  className={`border-2 ${colorTheme.border} ${colorTheme.bg} rounded shadow-sm`}
+                                >
+                                  <span className={`absolute -top-0.5 -left-0.5 w-2 h-2 border-t-2 border-l-2 ${colorTheme.corner}`} />
+                                  <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 border-t-2 border-r-2 ${colorTheme.corner}`} />
+                                  <span className={`absolute -bottom-0.5 -left-0.5 w-2 h-2 border-b-2 border-l-2 ${colorTheme.corner}`} />
+                                  <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border-b-2 border-r-2 ${colorTheme.corner}`} />
+
+                                  <div
+                                    className={`absolute -top-5 left-0 ${colorTheme.badge} text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow whitespace-nowrap z-10`}
+                                  >
+                                    #{index + 1} {box.class} {Math.round(box.confidence * 100)}%
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
                   <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
                       <div className="flex items-center gap-2">
-                        <span
-                          className={`w-3 h-3 rounded-full ${
-                            detection.severity === 'critical'
-                              ? 'bg-rose-500'
-                              : detection.severity === 'high'
-                              ? 'bg-amber-500'
-                              : 'bg-emerald-500'
-                          }`}
-                        ></span>
-                        <h5 className="text-sm font-semibold text-slate-100">
-                          RoadGuard detected{' '}
-                          <span className="text-amber-400 font-mono tabular-nums">
-                            {detection.potholeCount}
-                          </span>{' '}
-                          {detection.potholeCount === 1 ? 'pothole' : 'potholes'}.
-                        </h5>
+                        {detection.potholeCount > 0 ? (
+                          <>
+                            <span
+                              className={`w-3 h-3 rounded-full ${
+                                detection.severity === 'critical'
+                                  ? 'bg-rose-500'
+                                  : detection.severity === 'high'
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
+                              }`}
+                            ></span>
+                            <h5 className="text-sm font-semibold text-slate-100">
+                              RoadGuard detected{' '}
+                              <span className="text-amber-400 font-mono tabular-nums">
+                                {detection.potholeCount}
+                              </span>{' '}
+                              {detection.potholeCount === 1 ? 'pothole' : 'potholes'}.
+                            </h5>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <h5 className="text-sm font-semibold text-emerald-400">
+                              No Potholes Detected — Road Surface Clear
+                            </h5>
+                          </>
+                        )}
                       </div>
                       <span className="text-xs font-medium text-slate-300">
                         Severity:{' '}
                         <strong className="capitalize text-amber-400">
-                          {detection.severity}
+                          {detection.potholeCount === 0 ? 'Clear' : detection.severity}
                         </strong>
                       </span>
                     </div>
@@ -471,7 +622,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
                       <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
                         <span className="text-slate-400 block mb-0.5">Municipal Action</span>
-                        <span className="text-slate-200 font-medium">
+                        <span className="text-slate-200 font-medium truncate">
                           {detection.recommendedAction || 'Field inspection required'}
                         </span>
                       </div>
@@ -616,6 +767,27 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                   <span>Contact: <span className="font-mono text-slate-400">{selectedMunicipality.contactEmail}</span></span>
                 </div>
               </div>
+
+              {/* Evidence Review Summary */}
+              {evidenceUrl && (
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-3">
+                  <div className="w-16 h-12 rounded-lg bg-slate-900 overflow-hidden flex-shrink-0 border border-slate-800 relative">
+                    {evidenceType === 'video' ? (
+                      <video src={evidenceUrl} className="w-full h-full object-cover" />
+                    ) : (
+                      <img src={evidenceUrl} alt="Evidence" className="w-full h-full object-cover" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 text-xs">
+                    <div className="font-semibold text-slate-200 truncate">
+                      {detection ? `${detection.potholeCount} ${detection.potholeCount === 1 ? 'Pothole' : 'Potholes'} Identified` : 'Evidence Attached'}
+                    </div>
+                    <div className="text-[11px] text-slate-400 capitalize">
+                      {evidenceType} inspection · Severity: <span className="text-amber-400 font-medium">{detection?.severity || 'Standard'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Citizen Contact (if guest) */}
               <div className="space-y-3">

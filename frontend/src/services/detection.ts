@@ -211,49 +211,63 @@ export async function detectPotholesInVideo(
   videoSource: File | Blob | string,
   options: DetectionOptions = {}
 ): Promise<DetectionResult> {
-  if (typeof videoSource !== 'string') {
-    const formData = new FormData();
-    const filename = videoSource instanceof File ? videoSource.name : 'road_inspection.webm';
-    formData.append('video', videoSource, filename);
+  const formData = new FormData();
+  let previewUrl: string | undefined;
 
-    const confidence = options.confidenceThreshold !== undefined ? Math.round(options.confidenceThreshold) : 20;
-    const url = getApiUrl(`/api/detect/video?confidence=${confidence}`);
+  if (videoSource instanceof File) {
+    formData.append('video', videoSource, videoSource.name || 'road_inspection.webm');
+  } else if (videoSource instanceof Blob) {
+    formData.append('video', videoSource, 'road_inspection.webm');
+  } else if (typeof videoSource === 'string') {
+    previewUrl = videoSource;
+    const res = await fetch(videoSource);
+    const blob = await res.blob();
+    formData.append('video', blob, 'road_inspection.webm');
+  } else {
+    throw new Error('Video source must be a valid video file or recording blob.');
+  }
 
-    let response: Response;
+  const confidence = options.confidenceThreshold !== undefined ? Math.round(options.confidenceThreshold) : 20;
+  const url = getApiUrl(`/api/detect/video?confidence=${confidence}`);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    throw new Error(`Could not connect to video detection service (${url}): ${msg}`);
+  }
+
+  if (!response.ok) {
+    let errorDetails = `HTTP ${response.status} ${response.statusText}`;
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Network error';
-      throw new Error(`Could not connect to video detection service (${url}): ${msg}`);
+      const errJson = await response.json();
+      errorDetails = errJson.error || errJson.message || errJson.details || errorDetails;
+    } catch {
+      // not JSON
     }
+    throw new Error(`Video detection service error: ${errorDetails}`);
+  }
 
-    if (!response.ok) {
-      let errorDetails = `HTTP ${response.status} ${response.statusText}`;
-      try {
-        const errJson = await response.json();
-        errorDetails = errJson.error || errJson.message || errJson.details || errorDetails;
-      } catch {
-        // not JSON
-      }
-      throw new Error(`Video detection service error: ${errorDetails}`);
-    }
+  const json = await response.json();
+  const totalDetections = json.analytics?.uniquePotholeCount ?? json.analytics?.totalDetections ?? 0;
+  const worstRisk = json.analytics?.worstRiskLevel || json.overall_risk || 'MEDIUM';
+  const severity = mapSeverity(worstRisk);
 
-    const json = await response.json();
-    const totalDetections = json.analytics?.uniquePotholeCount ?? json.analytics?.totalDetections ?? 0;
-    const worstRisk = json.analytics?.worstRiskLevel || json.overall_risk || 'MEDIUM';
-    const severity = mapSeverity(worstRisk);
+  const videoMeta = json.video || {};
+  const defaultWidth = videoMeta.width || 640;
+  const defaultHeight = videoMeta.height || 360;
 
-    // Extract boxes from first frame with detections (or aggregate)
-    const framesWithDetections = (json.frames || []).filter((f: any) => f.predictions && f.predictions.length > 0);
-    const primaryFrame = framesWithDetections[0] || json.frames?.[0];
-    const rawPredictions = primaryFrame?.predictions || [];
-    const imageWidth = json.video?.width || primaryFrame?.image?.width || 640;
-    const imageHeight = json.video?.height || primaryFrame?.image?.height || 360;
+  // Process all frame predictions into timestamped VideoFrameDetection records
+  const videoFrames = (json.frames || []).map((f: any) => {
+    const fWidth = f.image?.width || defaultWidth;
+    const fHeight = f.image?.height || defaultHeight;
+    const rawPredictions = f.predictions || [];
 
-    const boxes: BoundingBox[] = rawPredictions.map((p: any, idx: number) => {
+    const frameBoxes: BoundingBox[] = rawPredictions.map((p: any, idx: number) => {
       const rawX = typeof p.x === 'number' ? p.x : 0;
       const rawY = typeof p.y === 'number' ? p.y : 0;
       const rawW = typeof p.width === 'number' ? p.width : 0;
@@ -263,11 +277,11 @@ export async function detectPotholesInVideo(
       const topPx = rawY - rawH / 2;
 
       return {
-        id: p.id || `video-pothole-${idx + 1}`,
-        x: Math.max(0, Math.min(1, leftPx / imageWidth)),
-        y: Math.max(0, Math.min(1, topPx / imageHeight)),
-        width: Math.max(0, Math.min(1, rawW / imageWidth)),
-        height: Math.max(0, Math.min(1, rawH / imageHeight)),
+        id: p.id || `video-f${f.frameIndex}-p${idx + 1}`,
+        x: Math.max(0, Math.min(1, leftPx / fWidth)),
+        y: Math.max(0, Math.min(1, topPx / fHeight)),
+        width: Math.max(0, Math.min(1, rawW / fWidth)),
+        height: Math.max(0, Math.min(1, rawH / fHeight)),
         confidence: Math.round((p.confidence || 0.85) * 100) / 100,
         class: formatClassName(p.class),
         points: Array.isArray(p.points) ? p.points : null,
@@ -276,34 +290,54 @@ export async function detectPotholesInVideo(
         rawY,
         rawWidth: rawW,
         rawHeight: rawH,
-        imageWidth,
-        imageHeight,
+        imageWidth: fWidth,
+        imageHeight: fHeight,
       };
     });
 
-    const avgConfidence = json.analytics?.maxConfidence || 0.85;
-
     return {
-      potholeCount: totalDetections,
-      severity,
-      confidence: Math.round(avgConfidence * 100) / 100,
-      boxes,
-      processedAt: new Date().toISOString(),
-      roadConditionIndex: Math.max(15, Math.round(100 - totalDetections * 18)),
-      recommendedAction:
-        totalDetections === 0
-          ? 'No road defects detected across video frames'
-          : severity === 'critical'
-          ? 'Urgent municipal field dispatch required for transit corridor'
-          : 'Priority field inspection queued for defect locations',
-      analytics: {
-        totalDetected: totalDetections,
-        maxConfidence: avgConfidence,
-        damagePercentage: json.analytics?.averageDamagePercentage || 0,
-        overallRiskLevel: worstRisk,
-      },
+      frameIndex: f.frameIndex,
+      timestamp: typeof f.timestamp === 'number' ? f.timestamp : 0,
+      boxes: frameBoxes,
     };
-  }
+  });
 
-  throw new Error('Video source must be a valid video file or recording blob.');
+  // Extract all boxes across frames or from primary frame
+  const framesWithDetections = videoFrames.filter((f) => f.boxes.length > 0);
+  const primaryFrame = framesWithDetections[0] || videoFrames[0];
+  const primaryBoxes = primaryFrame?.boxes || [];
+
+  const avgConfidence = json.analytics?.maxConfidence || 0.85;
+
+  return {
+    potholeCount: totalDetections,
+    severity,
+    confidence: Math.round(avgConfidence * 100) / 100,
+    boxes: primaryBoxes,
+    videoUrl: previewUrl,
+    videoFrames,
+    video: {
+      filename: videoMeta.filename,
+      duration: videoMeta.duration,
+      width: defaultWidth,
+      height: defaultHeight,
+      fps: videoMeta.fps,
+    },
+    image: { width: defaultWidth, height: defaultHeight },
+    processedAt: new Date().toISOString(),
+    roadConditionIndex: Math.max(15, Math.round(100 - totalDetections * 18)),
+    recommendedAction:
+      totalDetections === 0
+        ? 'No road defects detected across video frames'
+        : severity === 'critical'
+        ? 'Urgent municipal field dispatch required for transit corridor'
+        : 'Priority field inspection queued for defect locations',
+    analytics: {
+      totalDetected: totalDetections,
+      uniquePotholeCount: totalDetections,
+      maxConfidence: avgConfidence,
+      damagePercentage: json.analytics?.avgDamagePercentage || json.analytics?.averageDamagePercentage || 0,
+      overallRiskLevel: worstRisk,
+    },
+  };
 }

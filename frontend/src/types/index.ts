@@ -42,18 +42,34 @@ export interface BoundingBox {
   imageHeight?: number;
 }
 
+export interface VideoFrameDetection {
+  frameIndex: number;
+  timestamp: number;
+  boxes: BoundingBox[];
+}
+
 export interface DetectionResult {
   potholeCount: number;
   severity: SeverityLevel;
   confidence: number;
   boxes: BoundingBox[];
   imageUrl?: string;
+  videoUrl?: string;
+  videoFrames?: VideoFrameDetection[];
+  video?: {
+    filename?: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+    fps?: number;
+  };
   image?: { width: number; height: number };
   analytics?: {
     totalDetected: number;
     maxConfidence: number;
     damagePercentage: number;
     overallRiskLevel: string;
+    uniquePotholeCount?: number;
   };
   processedAt: string;
   roadConditionIndex?: number; // 0-100
