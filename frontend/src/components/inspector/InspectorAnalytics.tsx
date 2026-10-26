@@ -1,174 +1,162 @@
 import React from 'react';
 import { RoadIssue } from '../../types';
-import { BarChart3, TrendingUp, ShieldAlert, CheckCircle2, Clock, MapPin } from 'lucide-react';
+import { BarChart3, ShieldAlert, CheckCircle2, Clock, MapPin, Layers } from 'lucide-react';
+import { PageHeader } from '../common/PageHeader';
+import { StatCard } from '../common/StatCard';
+import { EmptyState } from '../common/EmptyState';
 
 interface InspectorAnalyticsProps {
   issues: RoadIssue[];
 }
 
+const SEVERITY_ROWS = [
+  { key: 'critical', label: 'Critical', text: 'text-rose-400', bar: 'bg-rose-500' },
+  { key: 'high', label: 'High', text: 'text-amber-400', bar: 'bg-amber-500' },
+  { key: 'medium', label: 'Medium', text: 'text-sky-400', bar: 'bg-sky-500' },
+  { key: 'low', label: 'Low', text: 'text-emerald-400', bar: 'bg-emerald-500' },
+] as const;
+
 export const InspectorAnalytics: React.FC<InspectorAnalyticsProps> = ({ issues }) => {
   const total = issues.length;
-  const criticalCount = issues.filter((i) => i.severity === 'critical').length;
-  const highCount = issues.filter((i) => i.severity === 'high').length;
-  const mediumCount = issues.filter((i) => i.severity === 'medium').length;
-  const lowCount = issues.filter((i) => i.severity === 'low').length;
+
+  const severityCounts: Record<string, number> = {};
+  SEVERITY_ROWS.forEach((row) => {
+    severityCounts[row.key] = issues.filter((i) => i.severity === row.key).length;
+  });
 
   const resolved = issues.filter((i) => i.status === 'resolved').length;
-  const inRepair = issues.filter((i) => i.status === 'in_repair').length;
   const inspectionBacklog = issues.filter(
     (i) => i.status === 'reported' || i.status === 'notified_municipality'
   ).length;
+  const openHighPriority = issues.filter(
+    (i) => (i.severity === 'critical' || i.severity === 'high') && i.status !== 'resolved'
+  ).length;
 
-  // Sector / Zone breakdown
+  // Zone concentration, derived from report locations and sorted by volume.
   const zoneCounts: Record<string, number> = {};
   issues.forEach((i) => {
-    const area = i.location.area || 'Central Sector';
+    const area = i.location.area || i.location.city || 'Unspecified area';
     zoneCounts[area] = (zoneCounts[area] || 0) + 1;
   });
+  const zones = Object.entries(zoneCounts).sort((a, b) => b[1] - a[1]);
+  const maxZoneCount = zones.length > 0 ? Math.max(...zones.map(([, count]) => count)) : 0;
 
   return (
-    <div className="space-y-6 w-full">
-      {/* Header */}
-      <div className="pb-4 border-b border-slate-800">
-        <h2 className="text-xl font-bold text-slate-100">Municipal Pavement Analytics</h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Quantitative telemetry on road distress density, resolution velocity, and municipal backlog.
-        </p>
-      </div>
+    <div className="w-full space-y-6">
+      <PageHeader
+        eyebrow={
+          <>
+            <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+            Pavement intelligence
+          </>
+        }
+        icon={<BarChart3 className="h-4 w-4" aria-hidden="true" />}
+        title="Municipal pavement analytics"
+        description="Severity distribution, resolution progress, and geographic defect concentration calculated directly from the current issue registry."
+      />
 
-      {/* Primary KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Municipal Resolution Rate</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
-              {total > 0 ? Math.round((resolved / total) * 100) : 100}%
-            </span>
-            <span className="text-[11px] text-slate-500 font-sans">
-              ({resolved} of {total} certified)
-            </span>
+      <section aria-label="Analytics summary" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Resolution rate"
+          value={total > 0 ? `${Math.round((resolved / total) * 100)}%` : '—'}
+          note={total > 0 ? `${resolved} of ${total} reports resolved` : 'No reports in the registry'}
+          icon={CheckCircle2}
+          tone="success"
+        />
+        <StatCard
+          label="Inspection backlog"
+          value={inspectionBacklog}
+          note="Reported or awaiting dispatch"
+          icon={Clock}
+          tone="amber"
+        />
+        <StatCard
+          label="Open high priority"
+          value={openHighPriority}
+          note="Critical or high, unresolved"
+          icon={ShieldAlert}
+          tone="danger"
+        />
+      </section>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Severity distribution */}
+        <section className="rg-panel space-y-4 rounded-xl p-5" aria-labelledby="severity-heading">
+          <div className="flex items-center justify-between gap-2">
+            <h2 id="severity-heading" className="text-sm font-semibold text-slate-100">
+              Severity distribution
+            </h2>
+            <span className="font-mono text-[11px] text-slate-500">{total} reports</span>
           </div>
-        </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Inspection Backlog</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-amber-400 tabular-nums">
-              {inspectionBacklog}
-            </span>
-            <span className="text-[11px] text-slate-500 font-sans">awaiting crew dispatch</span>
+          {total === 0 ? (
+            <EmptyState icon={Layers} title="No severity data yet" description="Severity bars populate as reports enter the registry." />
+          ) : (
+            <div className="space-y-3 text-xs">
+              {SEVERITY_ROWS.map((row) => {
+                const count = severityCounts[row.key] ?? 0;
+                const pct = Math.round((count / total) * 100);
+                return (
+                  <div key={row.key}>
+                    <div className="mb-1 flex justify-between">
+                      <span className={`font-medium ${row.text}`}>{row.label}</span>
+                      <span className="font-mono tabular-nums text-slate-300">
+                        {count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-full ${row.bar}`}
+                        style={{ width: `${pct}%` }}
+                        role="presentation"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Geographic concentration */}
+        <section className="rg-panel space-y-4 rounded-xl p-5" aria-labelledby="zone-heading">
+          <div className="flex items-center justify-between gap-2">
+            <h2 id="zone-heading" className="text-sm font-semibold text-slate-100">
+              Geographic defect concentration
+            </h2>
+            <span className="font-mono text-[11px] text-slate-500">{zones.length} areas</span>
           </div>
-        </div>
 
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-1">Average Response SLA</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-blue-400 tabular-nums">
-              18.4h
-            </span>
-            <span className="text-[11px] text-slate-500 font-sans">against 24h municipal target</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Severity Distribution & Zone Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Severity Breakdown Bar Representation */}
-        <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-          <h3 className="text-sm font-semibold text-slate-200">Severity Distribution</h3>
-
-          <div className="space-y-3 text-xs">
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-rose-400 font-medium">Critical</span>
-                <span className="font-mono text-slate-300 tabular-nums">
-                  {criticalCount} ({total > 0 ? Math.round((criticalCount / total) * 100) : 0}%)
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+          {zones.length === 0 ? (
+            <EmptyState icon={MapPin} title="No location data yet" description="Area concentration appears once reports include a location." />
+          ) : (
+            <div className="space-y-2.5">
+              {zones.map(([zone, count]) => (
                 <div
-                  className="bg-rose-500 h-full"
-                  style={{ width: `${total > 0 ? (criticalCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-amber-400 font-medium">High</span>
-                <span className="font-mono text-slate-300 tabular-nums">
-                  {highCount} ({total > 0 ? Math.round((highCount / total) * 100) : 0}%)
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-full"
-                  style={{ width: `${total > 0 ? (highCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-blue-400 font-medium">Medium</span>
-                <span className="font-mono text-slate-300 tabular-nums">
-                  {mediumCount} ({total > 0 ? Math.round((mediumCount / total) * 100) : 0}%)
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full"
-                  style={{ width: `${total > 0 ? (mediumCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-emerald-400 font-medium">Low</span>
-                <span className="font-mono text-slate-300 tabular-nums">
-                  {lowCount} ({total > 0 ? Math.round((lowCount / total) * 100) : 0}%)
-                </span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div
-                  className="bg-emerald-500 h-full"
-                  style={{ width: `${total > 0 ? (lowCount / total) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Geographic Concentration */}
-        <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-          <h3 className="text-sm font-semibold text-slate-200">Geographic Defect Concentration</h3>
-
-          <div className="space-y-2.5">
-            {Object.entries(zoneCounts).map(([zone, count]) => (
-              <div
-                key={zone}
-                className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-slate-200 font-medium">{zone}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-slate-400 font-mono tabular-nums">
-                    {count} incident{count === 1 ? '' : 's'}
-                  </span>
-                  <div className="w-16 bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-amber-400 h-full"
-                      style={{ width: `${(count / total) * 100}%` }}
-                    ></div>
+                  key={zone}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-2.5 text-xs"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden="true" />
+                    <span className="truncate font-medium text-slate-200">{zone}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="font-mono tabular-nums text-slate-400">
+                      {count} incident{count === 1 ? '' : 's'}
+                    </span>
+                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className="h-full bg-amber-400"
+                        style={{ width: `${maxZoneCount > 0 ? (count / maxZoneCount) * 100 : 0}%` }}
+                        role="presentation"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

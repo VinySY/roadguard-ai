@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoadIssue, IssueStatus, User } from '../../types';
-import { MapPin, Calendar, Clock, CheckCircle2, Circle, AlertCircle, ArrowLeft, Building2, Camera, ShieldCheck } from 'lucide-react';
+import { MapPin, CheckCircle2, AlertCircle, Building2, Plus } from 'lucide-react';
+import { EvidenceImage } from '../common/EvidenceImage';
+import { SeverityBadge, StatusBadge, statusLabel } from '../common/StatusBadge';
+import { PageHeader } from '../common/PageHeader';
+import { EmptyState } from '../common/EmptyState';
 
 interface CustomerReportsViewProps {
   issues: RoadIssue[];
@@ -20,6 +24,10 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
     selectedIssueId || (issues.length > 0 ? issues[0].id : null)
   );
+
+  useEffect(() => {
+    if (selectedIssueId) setActiveIssueId(selectedIssueId);
+  }, [selectedIssueId]);
 
   const myReports = issues.filter(
     (i) =>
@@ -51,39 +59,30 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
   return (
     <div className="space-y-6 w-full">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-xl font-bold text-slate-100">My Road Reports</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Track official municipal progress on road repairs you have submitted.
-          </p>
-        </div>
-        <button
-          onClick={onOpenReportModal}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm self-start sm:self-auto"
-        >
-          <span>Report Another Problem</span>
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Citizen workspace / Report tracking"
+        title="My Road Reports"
+        description="Track official municipal progress on road repairs you have submitted."
+        actions={
+          <button type="button" onClick={onOpenReportModal} className="rg-btn rg-btn-primary">
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Report another problem
+          </button>
+        }
+      />
 
       {myReports.length === 0 ? (
-        <div className="p-12 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-            <AlertCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold text-slate-200">No reports on file</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              You haven't reported any potholes yet. Use the report button to log an issue and track municipal remediation in real time.
-            </p>
-          </div>
-          <button
-            onClick={onOpenReportModal}
-            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-md"
-          >
-            Report Road Problem
-          </button>
-        </div>
+        <EmptyState
+          icon={AlertCircle}
+          title="No reports on file"
+          description="You haven't reported any potholes yet. Log an issue to track municipal remediation in real time."
+          action={
+            <button type="button" onClick={onOpenReportModal} className="rg-btn rg-btn-primary">
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Report a road problem
+            </button>
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Reports List (Left Column) */}
@@ -96,32 +95,22 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
               const isSelected = activeIssue?.id === issue.id;
 
               return (
-                <div
+                <button
                   key={issue.id}
+                  type="button"
                   onClick={() => setActiveIssueId(issue.id)}
-                  className={`p-4 rounded-xl border transition-all cursor-pointer space-y-2.5 select-none active:scale-[0.995] shadow-sm ${
+                  aria-pressed={isSelected}
+                  className={`block w-full select-none space-y-2.5 rounded-xl border p-4 text-left shadow-sm transition-all active:scale-[0.995] ${
                     isSelected
-                      ? 'bg-slate-850 border-amber-500/60 ring-1 ring-amber-500/20'
-                      : 'bg-slate-900 hover:bg-slate-850 hover:border-slate-700 active:bg-slate-800 border-slate-800/90'
+                      ? 'border-amber-500/60 bg-slate-800/80 ring-1 ring-amber-500/20'
+                      : 'border-slate-800/90 bg-slate-900 hover:border-slate-700 hover:bg-slate-800/60'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-mono font-bold text-slate-300">
                       {issue.referenceNumber}
                     </span>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded border capitalize ${
-                        issue.severity === 'critical'
-                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          : issue.severity === 'high'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          : issue.severity === 'medium'
-                          ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
-                          : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                      }`}
-                    >
-                      {issue.severity}
-                    </span>
+                    <SeverityBadge severity={issue.severity} />
                   </div>
 
                   <h4 className="text-sm font-semibold text-slate-100 line-clamp-1 leading-snug">
@@ -134,12 +123,12 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
                   </p>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2.5 border-t border-slate-800/80 font-mono">
-                    <span className="capitalize text-slate-400 font-sans">{issue.status.replace(/_/g, ' ')}</span>
+                    <span className="capitalize text-slate-400 font-sans">{statusLabel(issue.status)}</span>
                     <span className="text-amber-400 text-xs font-medium font-sans">
-                      {isSelected ? 'Viewing Timeline ↓' : 'View Details →'}
+                      {isSelected ? 'Viewing timeline' : 'View details'}
                     </span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -156,6 +145,10 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
                   <span className="text-xs text-slate-400 font-mono">
                     Reported on {new Date(activeIssue.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={activeIssue.status} />
+                  <SeverityBadge severity={activeIssue.severity} />
                 </div>
 
                 <h3 className="text-lg font-bold text-slate-100">{activeIssue.title}</h3>
@@ -180,23 +173,25 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
               </div>
 
               {/* Photographic Evidence Preview */}
-              {activeIssue.evidenceImageUrl && (
-                <div>
-                  <span className="text-xs font-medium text-slate-400 block mb-2">Photographic Evidence</span>
-                  <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 max-h-56 flex items-center justify-center">
-                    <img
-                      src={activeIssue.evidenceImageUrl}
-                      alt="Incident Evidence"
-                      className="w-full h-full object-cover"
-                    />
-                    {activeIssue.detectionData && (
-                      <div className="absolute bottom-2 left-2 bg-slate-950/80 backdrop-blur-md px-2.5 py-1 rounded text-[11px] text-amber-400 font-mono border border-slate-800">
-                        {activeIssue.detectionData.potholeCount} cavity detected · Severity: {activeIssue.severity}
-                      </div>
-                    )}
+              <div>
+                <span className="text-xs font-medium text-slate-400 block mb-2">Photographic evidence</span>
+                <EvidenceImage
+                  src={activeIssue.evidenceImageUrl}
+                  alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
+                  caption={`${activeIssue.location.street || activeIssue.location.area} · ${new Date(activeIssue.createdAt).toLocaleDateString()}`}
+                  className="relative max-h-64 min-h-[140px] rounded-xl border border-slate-800"
+                  imgClassName="w-full h-64 object-cover"
+                  allowFullView
+                />
+                {activeIssue.detectionData && activeIssue.evidenceImageUrl && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                    <span className="rg-badge rg-badge-amber">
+                      {activeIssue.detectionData.potholeCount} cavities detected
+                    </span>
+                    <SeverityBadge severity={activeIssue.severity} />
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Clean Human-Centered Timeline (Requirement 20) */}
               <div className="space-y-4 pt-2">

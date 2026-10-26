@@ -1,5 +1,9 @@
 import { DetectionResult, BoundingBox, SeverityLevel } from '../types';
 import { getApiUrl } from '../config/api';
+import {
+  resolveRawDetectionCount,
+  resolveUniquePotholeCount,
+} from './detectionCounts';
 
 export interface DetectionOptions {
   confidenceThreshold?: number;
@@ -76,7 +80,7 @@ async function buildImageFormData(imageSource: File | Blob | string): Promise<Fo
 
 /**
  * Analyzes an image for road surface distress / potholes.
- * Connects directly to backend /api/detect (which runs the Roboflow YOLOv11 model).
+ * Connects directly to backend /api/detect (which runs the Roboflow RF-DETR model).
  */
 export async function detectPotholesInImage(
   imageSource: File | Blob | string,
@@ -154,7 +158,12 @@ export async function detectPotholesInImage(
     };
   });
 
+  // The backend already removed duplicate/overlapping predictions. `boxes` is
+  // therefore the unique list; the analytics unique count is the source of
+  // truth and both should agree.
   const count = boxes.length;
+  const uniquePotholeCount = resolveUniquePotholeCount({ analytics: json.analytics, potholeCount: count });
+  const rawDetectionCount = resolveRawDetectionCount({ analytics: json.analytics });
   const avgConfidence = count > 0
     ? Math.round((boxes.reduce((acc, b) => acc + b.confidence, 0) / count) * 100) / 100
     : 0;
@@ -186,16 +195,34 @@ export async function detectPotholesInImage(
       ? 'Priority scheduling for asphalt surface patching'
       : 'Routine pavement maintenance log';
 
-  const previewUrl = typeof imageSource === 'string' ? imageSource : undefined;
+  const persistedUrl =
+    json.imageUrl ||
+    json.persistence?.imageUrl ||
+    json.image_path ||
+    json.persistence?.imagePath;
+  const previewUrl =
+    persistedUrl ||
+    (typeof imageSource === 'string' ? imageSource : undefined);
 
   return {
-    potholeCount: count,
+    potholeCount: uniquePotholeCount,
+    uniquePotholeCount,
+    rawDetectionCount,
     severity,
     confidence: avgConfidence,
     boxes,
     imageUrl: previewUrl,
     image: { width: imageWidth, height: imageHeight },
-    analytics: json.analytics,
+    analytics: json.analytics
+      ? {
+          ...json.analytics,
+          // Always expose a consistent unique count even for legacy payloads.
+          totalDetected: uniquePotholeCount,
+          uniquePotholeCount,
+          rawDetectionCount,
+        }
+      : undefined,
+    warnings: Array.isArray(json.warnings) ? json.warnings : undefined,
     location: json.location || null,
     processedAt: new Date().toISOString(),
     roadConditionIndex,
@@ -253,8 +280,15 @@ export async function detectPotholesInVideo(
   }
 
   const json = await response.json();
-  const totalDetections = json.analytics?.uniquePotholeCount ?? json.analytics?.totalDetections ?? 0;
-  const worstRisk = json.analytics?.worstRiskLevel || json.overall_risk || 'MEDIUM';
+  // Unique potholes are the answer. Raw frame detections are kept only for
+  // diagnostics and are never used as the reported count.
+  const uniquePotholeCount = resolveUniquePotholeCount({ analytics: json.analytics });
+  const rawDetectionCount = resolveRawDetectionCount({ analytics: json.analytics });
+  const worstRisk =
+    json.analytics?.overallRiskLevel ||
+    json.analytics?.worstFrameRiskLevel ||
+    json.overall_risk ||
+    'MEDIUM';
   const severity = mapSeverity(worstRisk);
 
   const videoMeta = json.video || {};
@@ -303,14 +337,16 @@ export async function detectPotholesInVideo(
   });
 
   // Extract all boxes across frames or from primary frame
-  const framesWithDetections = videoFrames.filter((f) => f.boxes.length > 0);
+  const framesWithDetections = videoFrames.filter((f: { boxes: BoundingBox[] }) => f.boxes.length > 0);
   const primaryFrame = framesWithDetections[0] || videoFrames[0];
   const primaryBoxes = primaryFrame?.boxes || [];
 
-  const avgConfidence = json.analytics?.maxConfidence || 0.85;
+  const avgConfidence = json.analytics?.maxConfidence ?? 0.85;
 
   return {
-    potholeCount: totalDetections,
+    potholeCount: uniquePotholeCount,
+    uniquePotholeCount,
+    rawDetectionCount,
     severity,
     confidence: Math.round(avgConfidence * 100) / 100,
     boxes: primaryBoxes,
@@ -325,19 +361,27 @@ export async function detectPotholesInVideo(
     },
     image: { width: defaultWidth, height: defaultHeight },
     processedAt: new Date().toISOString(),
-    roadConditionIndex: Math.max(15, Math.round(100 - totalDetections * 18)),
+    roadConditionIndex: Math.max(15, Math.round(100 - uniquePotholeCount * 18)),
     recommendedAction:
-      totalDetections === 0
+      uniquePotholeCount === 0
         ? 'No road defects detected across video frames'
         : severity === 'critical'
         ? 'Urgent municipal field dispatch required for transit corridor'
         : 'Priority field inspection queued for defect locations',
     analytics: {
-      totalDetected: totalDetections,
-      uniquePotholeCount: totalDetections,
+      totalDetected: uniquePotholeCount,
+      totalDetections: rawDetectionCount,
+      uniquePotholeCount,
+      rawDetectionCount,
+      duplicatePredictionsRemoved: json.analytics?.duplicatePredictionsRemoved,
+      rawPredictionCount: json.analytics?.rawPredictionCount,
+      candidateDetectionCount: json.analytics?.candidateDetectionCount,
       maxConfidence: avgConfidence,
       damagePercentage: json.analytics?.avgDamagePercentage || json.analytics?.averageDamagePercentage || 0,
       overallRiskLevel: worstRisk,
     },
+    quality: json.quality,
+    warnings: Array.isArray(json.warnings) ? json.warnings : undefined,
+    limitations: Array.isArray(json.limitations) ? json.limitations : undefined,
   };
 }

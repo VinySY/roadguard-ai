@@ -958,7 +958,7 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
 
         {/* ── Footer tip ── */}
         <div className="px-5 py-3 border-t border-slate-800/60 text-[10px] font-mono text-slate-600 flex items-center justify-between">
-          <span>Captured footage feeds into existing YOLOv11 Roboflow pipeline</span>
+          <span>Captured footage feeds into existing RF-DETR Roboflow pipeline</span>
           <span className="text-slate-500">Dual Live + Native Capture</span>
         </div>
       </div>

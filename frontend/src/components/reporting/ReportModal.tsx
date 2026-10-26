@@ -4,26 +4,23 @@ import { storage } from '../../services/storage';
 import { matchMunicipality, sendMunicipalEmailDispatch, DispatchReceipt } from '../../services/municipality';
 import { getCurrentBrowserLocation } from '../../services/location';
 import { detectPotholesInImage, detectPotholesInVideo } from '../../services/detection';
+import { persistEvidenceSource, resolveMediaUrl } from '../../services/media';
+import { createRoadIssue } from '../../services/api';
 import { CameraCapture } from '../detection/CameraCapture';
 import { EvidenceInputGrid } from '../detection/EvidenceInputGrid';
+import { LocationPinPicker } from '../map/LocationPinPicker';
+import { EvidenceImage } from '../common/EvidenceImage';
 import {
   X,
-  Camera,
-  UploadCloud,
   MapPin,
   Crosshair,
   Building2,
-  Mail,
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
   ArrowLeft,
   Loader2,
-  Sparkles,
   Send,
-  Video,
-  Film,
-  Image,
   RefreshCw,
 } from 'lucide-react';
 
@@ -65,6 +62,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   // Analysis / Detection state
   const [detection, setDetection] = useState<DetectionResult | null>(initialDetection || null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [videoCurrentTime, setVideoCurrentTime] = useState<number>(0);
   const reportVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -82,6 +80,9 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [customStreet, setCustomStreet] = useState(location.street || '');
   const [customArea, setCustomArea] = useState(location.area || '');
+  const [isPinPickerOpen, setIsPinPickerOpen] = useState(false);
+  const [showManualLocation, setShowManualLocation] = useState(true);
+  const [submissionWarning, setSubmissionWarning] = useState<string | null>(null);
 
   // Municipal Dispatch state
   const [selectedMunicipality, setSelectedMunicipality] = useState<Municipality>(
@@ -103,6 +104,9 @@ export const ReportModal: React.FC<ReportModalProps> = ({
   // Reset/sync modal state whenever opened
   useEffect(() => {
     if (isOpen) {
+      setAnalysisError(null);
+      setSubmissionWarning(null);
+      setIsPinPickerOpen(false);
       if (initialDetection) {
         setStep('location');
         setDetection(initialDetection);
@@ -123,6 +127,18 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       }
     }
   }, [isOpen, initialMode, initialDetection]);
+
+  // Close on Escape, except while a dispatch is in flight or the map picker is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isDispatching && !isPinPickerOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, isDispatching, isPinPickerOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -172,6 +188,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
     setStep('analysis');
     setIsAnalyzing(true);
+    setAnalysisError(null);
 
     try {
       if (evidenceType === 'video') {
@@ -182,14 +199,29 @@ export const ReportModal: React.FC<ReportModalProps> = ({
         setDetection(res);
       }
     } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Detection analysis could not be completed. Please check the backend connection and try again.';
       console.error('Detection analysis error', err);
+      setAnalysisError(message);
+      setDetection(null);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  const handlePinConfirm = (coords: LocationCoordinates) => {
+    setLocation(coords);
+    setCustomStreet(coords.street || `Pinned ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+    setCustomArea(coords.area || 'Selected on map');
+    setShowManualLocation(true);
+    setIsPinPickerOpen(false);
+  };
+
   const handleSubmitReport = async () => {
     setIsDispatching(true);
+    setSubmissionWarning(null);
 
     const refNum = `RG-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     const finalLocation: LocationCoordinates = {
@@ -218,10 +250,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      evidenceImageUrl:
-        evidenceType === 'image' && evidenceUrl
-          ? evidenceUrl
-          : detection?.imageUrl || '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg',
+      evidenceImageUrl: evidenceType === 'image' ? resolveMediaUrl(evidenceUrl) || '' : '',
       evidenceVideoUrl: evidenceType === 'video' && evidenceUrl ? evidenceUrl : undefined,
       detectionData: detection || undefined,
       priorityScore: detection?.severity === 'critical' ? 95 : detection?.severity === 'high' ? 82 : 60,
@@ -231,7 +260,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
           status: 'reported',
           title: 'Report Submitted',
           timestamp: 'Just now',
-          description: `Report filed with verified ${evidenceType} evidence and GPS coordinates.`,
+          description: `Report filed with ${evidenceType} evidence and GPS coordinates.`,
           actor: currentUser?.name || guestName || 'Citizen',
         },
         {
@@ -245,38 +274,91 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       ],
     };
 
-    // Save to persistent storage
-    storage.saveIssue(newIssue);
+    try {
+      // Persist the photograph before writing the local report so the evidence
+      // survives refresh. The backend store is preferred; a data URL is the
+      // last-resort fallback when the API is unreachable.
+      if (evidenceType === 'image' && (evidenceBlob || evidenceUrl)) {
+        try {
+          const persisted = await persistEvidenceSource(
+            evidenceBlob || evidenceUrl,
+            evidenceBlob instanceof File ? evidenceBlob.name : 'complaint.jpg'
+          );
+          if (persisted) newIssue.evidenceImageUrl = persisted;
+        } catch (evidenceError) {
+          console.warn('Evidence persistence failed; keeping the available preview.', evidenceError);
+        }
+      }
 
-    // Send demo municipal email dispatch
-    const receipt = await sendMunicipalEmailDispatch(newIssue, selectedMunicipality);
+      // Mirror the report into the existing MySQL-backed API. A backend or DB
+      // outage must not block the citizen's local submission.
+      try {
+        const created = await createRoadIssue({
+          category: 'Pothole',
+          description: newIssue.description || '',
+          severity: newIssue.severity,
+          status: 'Reported',
+          latitude: finalLocation.lat,
+          longitude: finalLocation.lng,
+          evidenceFile:
+            evidenceType === 'image' && evidenceBlob ? evidenceBlob : null,
+        });
+        const backendEvidenceUrl = resolveMediaUrl(created.evidence_url);
+        if (backendEvidenceUrl) newIssue.evidenceImageUrl = backendEvidenceUrl;
+      } catch (apiError) {
+        console.warn('Report saved locally; backend persistence unavailable.', apiError);
+        setSubmissionWarning(
+          'Saved on this device. The municipal database was not reachable, so server-side sync will need to be retried.'
+        );
+      }
 
-    setIsDispatching(false);
-    setDispatchReceipt(receipt);
-    setCreatedIssue(newIssue);
-    setStep('confirmation');
-    onReportSubmitted(newIssue);
+      storage.saveIssue(newIssue);
+
+      // Send demo municipal email dispatch
+      const receipt = await sendMunicipalEmailDispatch(newIssue, selectedMunicipality);
+
+      setDispatchReceipt(receipt);
+      setCreatedIssue(newIssue);
+      setStep('confirmation');
+      onReportSubmitted(newIssue);
+    } catch (error) {
+      console.error('Report submission failed', error);
+      setSubmissionWarning(
+        'The report could not be completed. Please check your connection and try again.'
+      );
+    } finally {
+      setIsDispatching(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm rg-animate-fade">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-modal-title"
+        className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 text-slate-100 shadow-2xl"
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/50 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 font-bold text-amber-400">
               RG
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-100">Report a Road Problem</h3>
+              <h3 id="report-modal-title" className="text-base font-semibold text-slate-100">
+                Report a road problem
+              </h3>
               <p className="text-xs text-slate-400">Step-by-step citizen road defect submission</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            className="rg-icon-btn"
+            aria-label="Close report dialog"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -323,6 +405,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                       {activeCameraMode === 'photo' ? 'Live Camera: Take Photo' : 'Live Camera: Record Video'}
                     </span>
                     <button
+                      type="button"
                       onClick={() => setActiveCameraMode(null)}
                       className="text-slate-400 hover:text-slate-200 underline"
                     >
@@ -340,10 +423,12 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 <div className="space-y-3">
                   <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-video flex items-center justify-center">
                     {evidenceType === 'image' ? (
-                      <img
+                      <EvidenceImage
                         src={evidenceUrl}
-                        alt="Road Distress Evidence"
-                        className="w-full h-full object-contain"
+                        alt="Road distress evidence preview"
+                        className="h-full w-full"
+                        imgClassName="w-full h-full object-contain"
+                        allowFullView
                       />
                     ) : (
                       <video
@@ -363,6 +448,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                   <div className="flex items-center justify-between p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-xs">
                     <span className="text-slate-400">Ready for automated road hazard assessment.</span>
                     <button
+                      type="button"
                       onClick={() => {
                         setEvidenceUrl(null);
                         setEvidenceBlob(null);
@@ -376,6 +462,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
                   <div className="pt-2 flex justify-end">
                     <button
+                      type="button"
                       onClick={handleStartAnalysis}
                       className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-md transition-colors"
                     >
@@ -440,6 +527,39 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     Executing YOLOv11 segmentation & localizing roadway distress coordinates
                   </p>
                 </div>
+              ) : analysisError ? (
+                <div className="flex flex-col items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/5 p-8 text-center">
+                  <AlertTriangle className="mb-3 h-8 w-8 text-rose-400" aria-hidden="true" />
+                  <h5 className="text-sm font-semibold text-slate-100">AI analysis could not complete</h5>
+                  <p className="mt-1 max-w-md text-xs leading-relaxed text-slate-400">{analysisError}</p>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleStartAnalysis}
+                      className="rg-btn rg-btn-primary"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Retry analysis
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep('evidence')}
+                      className="rg-btn rg-btn-secondary"
+                    >
+                      Change evidence
+                    </button>
+                  </div>
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    The photo was kept. You can still submit the report without AI severity if needed.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStep('location')}
+                    className="mt-1 text-[11px] font-medium text-amber-400 hover:text-amber-300"
+                  >
+                    Continue without AI assessment →
+                  </button>
+                </div>
               ) : detection ? (
                 <div className="space-y-3">
                   {/* Visual Evidence Preview with Bounding Box & Polygon Overlay */}
@@ -456,11 +576,17 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                           playsInline
                         />
                       ) : (
-                        <img
-                          src={evidenceUrl || detection.imageUrl || '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg'}
-                          alt="Road Incident Evidence"
-                          className="max-h-[300px] max-w-full w-auto h-auto block rounded-lg mx-auto shadow-md"
-                        />
+                        resolveMediaUrl(evidenceUrl || detection.imageUrl) ? (
+                          <img
+                            src={resolveMediaUrl(evidenceUrl || detection.imageUrl) || undefined}
+                            alt="Road incident evidence"
+                            className="max-h-[300px] max-w-full w-auto h-auto block rounded-lg mx-auto shadow-md"
+                          />
+                        ) : (
+                          <div className="flex h-48 w-full items-center justify-center rounded-lg border border-slate-800 bg-slate-900 px-6 text-center text-xs text-slate-500">
+                            The evidence preview is unavailable, but the detection results below are preserved.
+                          </div>
+                        )
                       )}
 
                       {/* Overlays */}
@@ -629,7 +755,9 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                       <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
                         <span className="text-slate-400 block mb-0.5">Pavement Quality</span>
                         <span className="text-slate-200 font-mono tabular-nums">
-                          Index {detection.roadConditionIndex}/100
+                          {detection.roadConditionIndex != null
+                            ? `Index ${detection.roadConditionIndex}/100`
+                            : 'Not computed'}
                         </span>
                       </div>
                     </div>
@@ -637,6 +765,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
                   <div className="flex items-center justify-between pt-2">
                     <button
+                      type="button"
                       onClick={() => setStep('evidence')}
                       className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
                     >
@@ -644,6 +773,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                       Back to Evidence
                     </button>
                     <button
+                      type="button"
                       onClick={() => setStep('location')}
                       className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-md transition-colors"
                     >
@@ -667,52 +797,89 @@ export const ReportModal: React.FC<ReportModalProps> = ({
               </div>
 
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                     <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>Current Selected Location</span>
+                    <span>Incident location</span>
                   </div>
-                  <button
-                    onClick={handleUseCurrentLocation}
-                    disabled={isDetectingLocation}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
-                  >
-                    <Crosshair className="w-3.5 h-3.5" />
-                    {isDetectingLocation ? 'Locating...' : 'Use My GPS Location'}
-                  </button>
-                </div>
-
-                <div className="space-y-2 pt-1">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Street / Roadway</label>
-                    <input
-                      type="text"
-                      value={customStreet}
-                      onChange={(e) => setCustomStreet(e.target.value)}
-                      placeholder="e.g. Jan Marg, Near Plaza"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Area / Sector</label>
-                    <input
-                      type="text"
-                      value={customArea}
-                      onChange={(e) => setCustomArea(e.target.value)}
-                      placeholder="e.g. Sector 17, Chandigarh"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                  </div>
-
-                  <div className="text-[11px] font-mono text-slate-500 pt-1">
-                    Coordinates: {location.lat.toFixed(4)}°N, {location.lng.toFixed(4)}°E
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowManualLocation((open) => !open)}
+                      aria-expanded={showManualLocation}
+                      className="rg-btn rg-btn-sm rg-btn-secondary"
+                    >
+                      <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                      Add Location
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPinPickerOpen(true)}
+                      className="rg-btn rg-btn-sm rg-btn-secondary"
+                    >
+                      <Crosshair className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                      Pin on Map
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleUseCurrentLocation}
+                      disabled={isDetectingLocation}
+                      className="rg-btn rg-btn-sm rg-btn-ghost"
+                    >
+                      {isDetectingLocation ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      {isDetectingLocation ? 'Locating…' : 'Use GPS'}
+                    </button>
                   </div>
                 </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-800/80 bg-slate-900/60 px-3 py-2 font-mono text-[11px] text-slate-400">
+                  <span className="text-amber-400">
+                    {location.lat.toFixed(6)}°N, {location.lng.toFixed(6)}°E
+                  </span>
+                  <span className="truncate">{location.street || location.area || 'No street label'}</span>
+                  {location.area === 'Selected on map' && <span className="rg-badge rg-badge-amber">Pinned</span>}
+                </div>
+
+                {showManualLocation && (
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <label htmlFor="report-street" className="text-[11px] text-slate-400 block mb-1">Street / Roadway</label>
+                      <input
+                        id="report-street"
+                        type="text"
+                        value={customStreet}
+                        onChange={(e) => setCustomStreet(e.target.value)}
+                        placeholder="e.g. Jan Marg, Near Plaza"
+                        className="rg-input"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="report-area" className="text-[11px] text-slate-400 block mb-1">Area / Sector</label>
+                      <input
+                        id="report-area"
+                        type="text"
+                        value={customArea}
+                        onChange={(e) => setCustomArea(e.target.value)}
+                        placeholder="e.g. Sector 17, Chandigarh"
+                        className="rg-input"
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 pt-1">
+                      Use <span className="text-slate-300">Pin on Map</span> for an exact road position, or edit the address manually.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between pt-2">
                 <button
+                  type="button"
                   onClick={() => setStep('analysis')}
                   className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
                 >
@@ -720,6 +887,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                   Back
                 </button>
                 <button
+                  type="button"
                   onClick={() => setStep('municipality')}
                   className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-md transition-colors"
                 >
@@ -739,6 +907,13 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                   Your report will be sent to the official agency responsible for road maintenance in this zone.
                 </p>
               </div>
+
+              {submissionWarning && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{submissionWarning}</span>
+                </div>
+              )}
 
               {/* Responsible Municipality Card */}
               <div className="p-4 rounded-xl bg-slate-950 border border-amber-500/30 space-y-3">
@@ -775,7 +950,12 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     {evidenceType === 'video' ? (
                       <video src={evidenceUrl} className="w-full h-full object-cover" />
                     ) : (
-                      <img src={evidenceUrl} alt="Evidence" className="w-full h-full object-cover" />
+                      <EvidenceImage
+                        src={evidenceUrl}
+                        alt="Evidence summary"
+                        className="h-full w-full"
+                        imgClassName="w-full h-full object-cover"
+                      />
                     )}
                   </div>
                   <div className="min-w-0 flex-1 text-xs">
@@ -800,7 +980,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                         value={guestName}
                         onChange={(e) => setGuestName(e.target.value)}
                         placeholder="Citizen name"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        className="rg-input !py-1.5"
                       />
                     </div>
                     <div>
@@ -810,7 +990,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                         value={guestContact}
                         onChange={(e) => setGuestContact(e.target.value)}
                         placeholder="For status updates"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        className="rg-input !py-1.5"
                       />
                     </div>
                   </div>
@@ -823,13 +1003,14 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                     value={customDescription}
                     onChange={(e) => setCustomDescription(e.target.value)}
                     placeholder="e.g. Near bus stop, sharp drop-off risking tires and two-wheelers."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                    className="rg-textarea resize-none"
                   />
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-2">
                 <button
+                  type="button"
                   onClick={() => setStep('location')}
                   className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
                 >
@@ -837,6 +1018,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                   Back
                 </button>
                 <button
+                  type="button"
                   onClick={handleSubmitReport}
                   disabled={isDispatching}
                   className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50"
@@ -901,18 +1083,45 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 Demo Municipal Gateway: Simulated official dispatch email generated and queued for inspection crew.
               </p>
 
+              {submissionWarning && (
+                <div className="mx-auto flex max-w-md items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-left text-[11px] text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{submissionWarning}</span>
+                </div>
+              )}
+
+              {createdIssue.evidenceImageUrl && (
+                <div className="mx-auto max-w-md text-left">
+                  <EvidenceImage
+                    src={createdIssue.evidenceImageUrl}
+                    alt="Submitted pothole evidence"
+                    className="h-28 w-full rounded-xl border border-slate-800"
+                    imgClassName="h-full w-full object-cover"
+                    allowFullView
+                  />
+                </div>
+              )}
+
               <div className="pt-2 flex justify-center gap-3">
                 <button
+                  type="button"
                   onClick={onClose}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors"
+                  className="rg-btn rg-btn-secondary"
                 >
-                  Close & View on Dashboard
+                  Close &amp; view on dashboard
                 </button>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      <LocationPinPicker
+        isOpen={isPinPickerOpen}
+        initialLocation={location}
+        onConfirm={handlePinConfirm}
+        onCancel={() => setIsPinPickerOpen(false)}
+      />
     </div>
   );
 };

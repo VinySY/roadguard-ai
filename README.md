@@ -1,6 +1,6 @@
 # RoadGuard AI (Phase 1)
 
-AI-powered pothole detection and segmentation using Roboflow's YOLOv11 Instance Segmentation model, structured as cleanly separated frontend and backend services.
+AI-powered pothole detection and segmentation using Roboflow's RF-DETR Instance Segmentation model, structured as cleanly separated frontend and backend services.
 
 ---
 
@@ -24,7 +24,7 @@ C:\Pothole AI
 │
 ├── backend/                   # Standalone Node.js + Express + TypeScript API Server
 │   ├── server/
-│   │   └── index.ts           # Express endpoints & Roboflow YOLOv11 proxy
+│   │   └── index.ts           # Express endpoints & Roboflow RF-DETR proxy
 │   ├── test/
 │   │   └── images/            # Preset sample road images for testing
 │   ├── test-detection.ts      # Standalone integration test script
@@ -92,9 +92,9 @@ npm run dev
        ▼
 [Express Backend Server] (Port 3001)
        │
-       │ HTTPS POST (outline.roboflow.com with server-side ROBOFLOW_API_KEY)
+       │ HTTPS POST (serverless.roboflow.com with server-side ROBOFLOW_API_KEY)
        ▼
-[Roboflow Hosted Inference API (YOLOv11-seg)]
+[Roboflow Serverless Cloud API (RF-DETR-seg)]
 ```
 
 ---
@@ -106,4 +106,4 @@ npm run dev
 | `GET` | `/api/health` | Checks server status and tests connection to Roboflow model |
 | `GET` | `/api/samples` | Returns list of curated sample road images for testing |
 | `GET` | `/api/samples/:filename` | Serves sample image file |
-| `POST` | `/api/detect` | Accepts uploaded image buffer or sample filename, runs YOLOv11 segmentation, and returns enriched pothole metrics |
+| `POST` | `/api/detect` | Accepts uploaded image buffer or sample filename, runs RF-DETR segmentation, and returns enriched pothole metrics |

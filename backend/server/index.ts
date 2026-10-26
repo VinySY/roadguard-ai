@@ -11,6 +11,32 @@ import { saveInspection, saveDetections } from './db/persistence.js';
 import dbRoutes from './routes/dbRoutes.js';
 import videoRoutes from './routes/videoDetection.js';
 import { getProjectRoot } from './utils/paths.js';
+import { ensureDir, saveUploadBuffer, toPublicUploadUrl } from './utils/uploads.js';
+import {
+  buildModelsMetadataUrl,
+  buildServerlessInferenceUrl,
+  getRoboflowConfig,
+  sanitizeApiKey,
+} from './config/roboflow.js';
+import {
+  DEFAULT_BOX_IOU_THRESHOLD,
+  DEFAULT_CONFIDENCE_PERCENT,
+  DEFAULT_CONTAINMENT_THRESHOLD,
+  DEFAULT_MASK_IOU_THRESHOLD,
+  DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT,
+  DEFAULT_OVERLAP_PERCENT,
+  InvalidRoboflowResponseError,
+  calculateDamagePercentage,
+  calculateRiskLevel,
+  deduplicatePredictions,
+  enrichPredictions,
+  filterByConfidence,
+  maxConfidenceOf,
+  parseBooleanParam,
+  parsePercentParam,
+  parseUnitIntervalParam,
+  validateRoboflowResponse,
+} from './utils/detectionPostprocess.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -54,25 +80,15 @@ app.use(
   })
 );
 
-// Roboflow Model Configuration (YOLOv11 Instance Segmentation)
-const ROBOFLOW_WORKSPACE = process.env.ROBOFLOW_WORKSPACE || 'govindsy43564-gmail-com';
-const ROBOFLOW_PROJECT = process.env.ROBOFLOW_PROJECT || 'pothole-detection-itsgr';
-const ROBOFLOW_VERSION = process.env.ROBOFLOW_VERSION || '1';
+// Roboflow Model Configuration (RF-DETR instance segmentation).
+// `ROBOFLOW_MODEL_ID` is authoritative for inference; see config/roboflow.ts.
+const roboflowConfig = getRoboflowConfig();
 
-/**
- * Sanitizes and normalizes API keys from environment variables.
- * Handles raw keys, wrapped quotes, or 'Bearer ' prefixes gracefully.
- */
-function getSanitizedApiKey(): string {
-  const rawKey = process.env.ROBOFLOW_API_KEY || '';
-  return rawKey.replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
-}
-
-// Ensure uploads directory exists for persisting inspection images
-const uploadsDir = join(projectRoot, 'uploads/inspections');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Ensure uploads directory exists for persisting inspection and complaint images
+const uploadsRoot = join(projectRoot, 'uploads');
+const uploadsDir = join(uploadsRoot, 'inspections');
+ensureDir(uploadsDir);
+ensureDir(join(uploadsRoot, 'evidence'));
 
 // In-memory Multer storage for high-throughput, leak-free buffer processing
 const storage = multer.memoryStorage();
@@ -91,15 +107,54 @@ const upload = multer({
 
 app.use(express.json({ limit: '10mb' }));
 
+// Serve persisted inspection and complaint files at /api/uploads/...
+app.use(
+  '/api/uploads',
+  express.static(uploadsRoot, {
+    index: false,
+    dotfiles: 'deny',
+    fallthrough: false,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  })
+);
+
 // Mount Phase 3 database routes (inspections, issues, db health)
 app.use(dbRoutes);
+
+// Persist a complaint/report photograph independently of detection
+app.post('/api/evidence', upload.single('image'), (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image provided. Attach a JPEG, PNG, or WebP file as "image".' });
+  }
+
+  try {
+    const saved = saveUploadBuffer(
+      uploadsRoot,
+      'evidence',
+      req.file.buffer,
+      req.file.originalname || 'complaint.jpg'
+    );
+    return res.status(201).json({
+      success: true,
+      url: saved.publicUrl,
+      path: saved.relativePath,
+      filename: saved.filename,
+    });
+  } catch (error: any) {
+    console.error('[RoadGuard] Evidence upload failed:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to store uploaded evidence image' });
+  }
+});
 
 // Mount video detection routes
 app.use(videoRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (_req: Request, res: Response) => {
-  const apiKey = getSanitizedApiKey();
+  const apiKey = sanitizeApiKey();
   const isConfigured = apiKey.length > 0;
 
   let modelReachable = false;
@@ -107,17 +162,32 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 
   if (isConfigured) {
     try {
-      const probeUrl = `https://api.roboflow.com/${encodeURIComponent(ROBOFLOW_WORKSPACE)}/${encodeURIComponent(ROBOFLOW_PROJECT)}/${encodeURIComponent(ROBOFLOW_VERSION)}?api_key=${encodeURIComponent(apiKey)}`;
-      const probeRes = await fetch(probeUrl, { signal: AbortSignal.timeout(5000) });
+      // Probe the deployed model list (bearer auth, key never in the URL).
+      const probeRes = await fetch(buildModelsMetadataUrl(roboflowConfig), {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
       if (probeRes.ok) {
-        modelReachable = true;
-        const data = await probeRes.json();
-        modelInfo = {
-          projectName: data?.project?.name || ROBOFLOW_PROJECT,
-          projectType: data?.project?.type || 'instance-segmentation',
-          version: ROBOFLOW_VERSION,
-          updated: data?.project?.updated
-        };
+        const models = await probeRes.json();
+        const match = Array.isArray(models)
+          ? models.find((model: any) => model?.url === roboflowConfig.modelId)
+          : null;
+        modelReachable = Boolean(match);
+        modelInfo = match
+          ? {
+              name: match.name,
+              taskType: match.taskType,
+              modelType: match.modelType,
+              created: match.created,
+              trainStatus: match.train?.status,
+              metrics: match.metrics ?? null,
+            }
+          : {
+              found: false,
+              availableModels: Array.isArray(models)
+                ? models.map((model: any) => model?.url).filter(Boolean)
+                : [],
+            };
       }
     } catch {
       // Model probe failed or timed out
@@ -132,9 +202,11 @@ app.get('/api/health', async (_req: Request, res: Response) => {
     apiKeyConfigured: isConfigured,
     modelReachable,
     model: {
-      workspace: ROBOFLOW_WORKSPACE,
-      project: ROBOFLOW_PROJECT,
-      version: ROBOFLOW_VERSION,
+      workspace: roboflowConfig.workspace,
+      project: roboflowConfig.project,
+      version: roboflowConfig.version,
+      modelId: roboflowConfig.modelId,
+      taskType: roboflowConfig.taskType,
       details: modelInfo
     },
     database: {
@@ -185,7 +257,7 @@ app.get('/api/samples/:filename', (req: Request, res: Response) => {
 // Main Pothole Detection Endpoint
 app.post('/api/detect', upload.single('image'), async (req: Request, res: Response) => {
   try {
-    const apiKey = getSanitizedApiKey();
+    const apiKey = sanitizeApiKey();
 
     if (!apiKey) {
       return res.status(500).json({
@@ -214,18 +286,59 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
       return res.status(400).json({ error: 'No image provided. Please upload an image or select a sample.' });
     }
 
-    // Parse confidence and overlap options
-    const confidence = req.query.confidence ? parseInt(req.query.confidence as string, 10) : 20;
-    const overlap = req.query.overlap ? parseInt(req.query.overlap as string, 10) : 30;
+    // Parse and validate confidence / overlap options. Invalid values return
+    // 400 instead of being silently forwarded to Roboflow as NaN.
+    const confidence = parsePercentParam(req.query.confidence, DEFAULT_CONFIDENCE_PERCENT);
+    const overlap = parsePercentParam(req.query.overlap, DEFAULT_OVERLAP_PERCENT);
+    if (confidence === null) {
+      return res.status(400).json({
+        error: 'Invalid confidence value. Provide a number between 0 and 100.',
+      });
+    }
+    if (overlap === null) {
+      return res.status(400).json({
+        error: 'Invalid overlap value. Provide a number between 0 and 100.',
+      });
+    }
+
+    const dedupeEnabled = parseBooleanParam(req.query.dedupe ?? req.query.deduplicate, true);
+    const maskIouThreshold = parseUnitIntervalParam(
+      req.query.maskIou ?? req.query.dedupeIou,
+      DEFAULT_MASK_IOU_THRESHOLD,
+    );
+    const boxIouThreshold = parseUnitIntervalParam(
+      req.query.boxIou ?? req.query.dedupeBoxIou,
+      DEFAULT_BOX_IOU_THRESHOLD,
+    );
+    const containmentThreshold = parseUnitIntervalParam(
+      req.query.containment,
+      DEFAULT_CONTAINMENT_THRESHOLD,
+    );
+    const minAreaRatio = parseUnitIntervalParam(
+      req.query.minAreaRatio,
+      DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT,
+    );
+    const debug = parseBooleanParam(req.query.debug, false);
+
+    if (maskIouThreshold === null || boxIouThreshold === null || containmentThreshold === null || minAreaRatio === null) {
+      return res.status(400).json({
+        error: 'Invalid deduplication threshold. maskIou/boxIou/containment/minAreaRatio must be between 0 and 1.',
+      });
+    }
 
     const base64Image = imageBuffer.toString('base64');
 
-    // Call Roboflow Instance Segmentation API (outline endpoint)
-    const roboflowUrl = `https://outline.roboflow.com/${encodeURIComponent(ROBOFLOW_PROJECT)}/${encodeURIComponent(ROBOFLOW_VERSION)}?api_key=${encodeURIComponent(apiKey)}&confidence=${confidence}&overlap=${overlap}`;
+    // Call the deployed RF-DETR segmentation model through Roboflow's
+    // Serverless Cloud API. Percentages are converted to 0–1 fractions.
+    const roboflowUrl = buildServerlessInferenceUrl(roboflowConfig.modelId, {
+      confidencePercent: confidence,
+      overlapPercent: overlap,
+    });
 
     const rfResponse = await fetch(roboflowUrl, {
       method: 'POST',
       headers: {
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: base64Image
@@ -240,44 +353,76 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
       });
     }
 
-    const result = await rfResponse.json();
+    let result: unknown;
+    try {
+      result = await rfResponse.json();
+    } catch {
+      return res.status(502).json({
+        error: 'Invalid response from Roboflow',
+        details: 'The model returned a non-JSON response.',
+      });
+    }
 
-    // Enrich response with server-calculated analytics
-    const predictions = result.predictions || [];
-    const imageMeta = result.image || { width: 640, height: 640 };
-    const totalImageArea = (imageMeta.width || 640) * (imageMeta.height || 640);
-
-    let totalPotholeArea = 0;
-    let maxConfidence = 0;
-
-    const enrichedPredictions = predictions.map((pred: any, index: number) => {
-      const area = (pred.width || 0) * (pred.height || 0);
-      totalPotholeArea += area;
-      if (pred.confidence > maxConfidence) {
-        maxConfidence = pred.confidence;
+    // Validate/normalise the model response before doing any counting.
+    let validated;
+    try {
+      validated = validateRoboflowResponse(result);
+    } catch (validationError: any) {
+      if (validationError instanceof InvalidRoboflowResponseError) {
+        return res.status(502).json({
+          error: 'Invalid response from Roboflow',
+          details: validationError.message,
+        });
       }
+      throw validationError;
+    }
 
-      // Determine individual pothole severity
-      const areaRatio = (area / totalImageArea) * 100;
-      let severity: 'minor' | 'moderate' | 'high' | 'critical' = 'minor';
-      if (areaRatio > 12 || pred.confidence > 0.85) severity = 'critical';
-      else if (areaRatio > 6 || pred.confidence > 0.70) severity = 'high';
-      else if (areaRatio > 2 || pred.confidence > 0.50) severity = 'moderate';
+    const imageMeta = validated.image;
 
-      return {
-        ...pred,
-        id: `pothole-${index + 1}`,
-        area,
-        areaRatio: parseFloat(areaRatio.toFixed(2)),
-        severity
-      };
-    });
+    // The API echoes the model it actually executed. Surface it in logs and in
+    // the response so a misconfigured model ID is immediately visible.
+    const resolvedModel = (result as any)?.resolved_model;
+    const modelId = resolvedModel?.model_id || roboflowConfig.modelId;
+    console.log(
+      `[RoadGuard AI] Inference model: ${modelId} (${roboflowConfig.taskType}, ` +
+      `${validated.rawPredictionCount} raw prediction(s))`,
+    );
 
-    const damagePercentage = parseFloat(((totalPotholeArea / totalImageArea) * 100).toFixed(2));
-    let overallRiskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
-    if (enrichedPredictions.length >= 4 || damagePercentage > 15) overallRiskLevel = 'CRITICAL';
-    else if (enrichedPredictions.length >= 2 || damagePercentage > 7) overallRiskLevel = 'HIGH';
-    else if (enrichedPredictions.length === 1 || damagePercentage > 2) overallRiskLevel = 'MEDIUM';
+    // Confidence is applied locally as well as at Roboflow so a model/API
+    // change cannot bypass the threshold.
+    const candidates = filterByConfidence(validated.predictions, confidence / 100);
+    const deduplication = dedupeEnabled
+      ? deduplicatePredictions(candidates, {
+          maskIouThreshold: maskIouThreshold,
+          boxIouThreshold: boxIouThreshold,
+          containmentThreshold: containmentThreshold,
+          minAreaRatioForContainment: minAreaRatio,
+        })
+      : {
+          predictions: candidates,
+          candidateCount: candidates.length,
+          duplicateCount: 0,
+          suppressed: [],
+        };
+
+    const uniquePredictions = deduplication.predictions;
+    const enrichedPredictions = enrichPredictions(uniquePredictions, imageMeta);
+    const uniquePotholeCount = enrichedPredictions.length;
+    // "Raw" means predictions that survived confidence filtering, before
+    // duplicate suppression. Kept separate from the unique count so callers
+    // can still audit/debug model output.
+    const rawDetectionCount = candidates.length;
+    const duplicatePredictionsRemoved = deduplication.duplicateCount;
+    const damagePercentage = calculateDamagePercentage(uniquePredictions, imageMeta);
+    const maxConfidence = maxConfidenceOf(uniquePredictions);
+    const overallRiskLevel = calculateRiskLevel(uniquePotholeCount, damagePercentage);
+
+    const warnings = [...validated.warnings];
+    if (duplicatePredictionsRemoved > 0) {
+      warnings.push(
+        `${duplicatePredictionsRemoved} duplicate/overlapping prediction(s) were merged into ${uniquePotholeCount} unique pothole(s).`,
+      );
+    }
 
     // ===================================================================
     // EXIF GPS Extraction: Safely parse GPS telemetry if embedded in image
@@ -309,28 +454,37 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
     // ===================================================================
     let persistenceWarning: string | undefined;
     let inspectionId: number | undefined;
+    let imagePath: string | null = null;
+    let persistedImageUrl: string | null = null;
+
+    // Always persist user-uploaded photographs to disk so they remain
+    // accessible after refresh, even if MySQL is unavailable.
+    if (req.file && imageBuffer) {
+      try {
+        const saved = saveUploadBuffer(
+          uploadsRoot,
+          'inspections',
+          imageBuffer,
+          imageFilename
+        );
+        imagePath = saved.relativePath;
+        persistedImageUrl = saved.publicUrl;
+      } catch (fileError: any) {
+        console.error('[RoadGuard] Failed to persist inspection image:', fileError?.message || fileError);
+      }
+    }
 
     try {
       const pool = getPool();
       if (pool) {
-        // Save uploaded image to disk (only for user uploads, not samples)
-        let imagePath: string | null = null;
-        if (req.file) {
-          const timestamp = Date.now();
-          const safeOriginal = imageFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const diskFilename = `${timestamp}_${safeOriginal}`;
-          const diskPath = join(uploadsDir, diskFilename);
-          fs.writeFileSync(diskPath, imageBuffer!);
-          imagePath = `uploads/inspections/${diskFilename}`;
-        }
-
         // Create inspection record
         inspectionId = await saveInspection({
           image_filename: imageFilename,
           image_path: imagePath,
           image_width: imageMeta.width || 640,
           image_height: imageMeta.height || 640,
-          detection_count: enrichedPredictions.length,
+          detection_count: rawDetectionCount,
+          unique_pothole_count: uniquePotholeCount,
           overall_risk: overallRiskLevel,
           damage_percentage: damagePercentage,
           confidence_threshold: confidence,
@@ -354,7 +508,10 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
           await saveDetections(detectionRecords);
         }
 
-        console.log(`[RoadGuard DB] Persisted inspection #${inspectionId} with ${enrichedPredictions.length} detections`);
+        console.log(
+          `[RoadGuard DB] Persisted inspection #${inspectionId}: ${uniquePotholeCount} unique pothole(s) ` +
+          `(${rawDetectionCount} raw prediction(s), ${duplicatePredictionsRemoved} duplicate(s) merged)`,
+        );
       } else {
         persistenceWarning = 'Database pool not available — detection not persisted';
         console.warn(`[RoadGuard DB] ${persistenceWarning}`);
@@ -368,28 +525,88 @@ app.post('/api/detect', upload.single('image'), async (req: Request, res: Respon
     // Build the response — SAME structure the frontend expects
     const responsePayload: any = {
       success: true,
-      time: result.time || 0,
+      time: (result as any)?.time || 0,
       image: imageMeta,
+      model: {
+        id: modelId,
+        taskType: roboflowConfig.taskType,
+        ...(resolvedModel?.model_package_id && { packageId: resolvedModel.model_package_id }),
+        ...(resolvedModel?.backend && { backend: resolvedModel.backend }),
+        ...(resolvedModel?.quantization && { quantization: resolvedModel.quantization }),
+      },
       predictions: enrichedPredictions,
       analytics: {
-        totalDetected: enrichedPredictions.length,
+        // `totalDetected` is the final, user-facing unique count to preserve
+        // backwards compatibility. Raw totals live in explicit fields below.
+        totalDetected: uniquePotholeCount,
+        uniquePotholeCount,
+        rawDetectionCount,
+        rawTotalDetected: rawDetectionCount,
+        rawPredictionCount: validated.rawPredictionCount,
+        candidateDetectionCount: deduplication.candidateCount,
+        duplicatePredictionsRemoved,
         maxConfidence: parseFloat(maxConfidence.toFixed(3)),
         damagePercentage,
         overallRiskLevel
       },
+      confidenceThreshold: confidence,
+      deduplication: {
+        enabled: dedupeEnabled,
+        maskIouThreshold,
+        boxIouThreshold,
+        containmentThreshold,
+        minAreaRatioForContainment: minAreaRatio,
+        duplicatesRemoved: duplicatePredictionsRemoved,
+      },
+      ...(warnings.length > 0 && { warnings }),
       ...(location && { location })
     };
+
+    // Optional debug payload: full pre-dedupe predictions and the suppression
+    // decisions. Never returned by default because it increases response size
+    // and exposes model internals.
+    if (debug) {
+      responsePayload.debug = {
+        rawPredictions: candidates,
+        suppressed: deduplication.suppressed.map((entry) => ({
+          keptDetectionId: (entry.kept as any).detection_id ?? null,
+          keptClass: entry.kept.class,
+          keptConfidence: entry.kept.confidence,
+          removedDetectionId: (entry.removed as any).detection_id ?? null,
+          removedClass: entry.removed.class,
+          removedConfidence: entry.removed.confidence,
+          maskIoU: entry.maskIoU,
+          maskIoS: entry.maskIoS,
+          boxIoU: entry.boxIoU,
+        })),
+      };
+    }
+
+    if (persistedImageUrl) {
+      responsePayload.imageUrl = persistedImageUrl;
+      responsePayload.image_path = imagePath;
+    }
 
     // Add non-breaking persistence metadata (new fields the frontend can ignore)
     if (inspectionId !== undefined) {
       responsePayload.persistence = {
         saved: true,
         inspectionId,
+        imageUrl: persistedImageUrl,
+        imagePath,
       };
     } else if (persistenceWarning) {
       responsePayload.persistence = {
         saved: false,
         warning: persistenceWarning,
+        imageUrl: persistedImageUrl,
+        imagePath,
+      };
+    } else if (persistedImageUrl) {
+      responsePayload.persistence = {
+        saved: false,
+        imageUrl: persistedImageUrl,
+        imagePath,
       };
     }
 
@@ -419,8 +636,8 @@ if (pool) {
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`[RoadGuard AI] Backend server active on http://${HOST}:${PORT}`);
-  console.log(`[RoadGuard AI] Roboflow Project: ${ROBOFLOW_PROJECT} (v${ROBOFLOW_VERSION})`);
-  console.log(`[RoadGuard AI] API Key status: ${getSanitizedApiKey() ? 'Configured' : 'Missing'}`);
+  console.log(`[RoadGuard AI] Roboflow model: ${roboflowConfig.modelId} (${roboflowConfig.taskType})`);
+  console.log(`[RoadGuard AI] API Key status: ${roboflowConfig.apiKeyConfigured ? 'Configured' : 'Missing'}`);
 });
 
 // Graceful shutdown

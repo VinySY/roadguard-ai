@@ -2,6 +2,12 @@
 **Date:** 2026-09-26  
 **Status:** ✅ Complete and Working  
 
+> **Update (2026-10-26):** counting was reworked to deduplicate synonym/overlapping
+> predictions within each frame and to track potholes across frames with motion
+> compensation. The old adjacent-frame IoU-only logic described below has been
+> replaced. See `DETECTION_COUNTING_FIX.md` at the repository root for the current
+> behaviour, settings, and verified results.
+
 ## Overview
 Successfully implemented video pothole detection for RoadGuard AI, building on the existing Roboflow-based image detection infrastructure. The system uses manually installed FFmpeg 9.0.2 (confirmed working on Windows) to extract frames from videos and processes them through the same Roboflow instance segmentation model.
 
@@ -210,8 +216,9 @@ backend/uploads/frames/ - empty
 
 **Environment Variables:**
 - `ROBOFLOW_API_KEY`: Required for Roboflow API
-- `ROBOFLOW_PROJECT`: Project ID (already configured)
-- `ROBOFLOW_VERSION`: Model version (already configured)
+- `ROBOFLOW_MODEL_ID`: Deployed model ID (`<workspace>/<model-slug>`); defaults to the RF-DETR segmentation model
+- `ROBOFLOW_PROJECT`: Project ID (used for metadata/health reporting)
+- `ROBOFLOW_VERSION`: Project version (metadata fallback only)
 - Database connection variables unchanged
 
 ## Conclusion

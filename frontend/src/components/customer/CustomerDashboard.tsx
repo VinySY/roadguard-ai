@@ -1,9 +1,22 @@
 import React from 'react';
 import { RoadIssue, LocationCoordinates, User } from '../../types';
 import heroImg from '../../assets/images/roadguard_hero_inspection_1790958611333.jpg';
-import { Plus, MapPin, ArrowRight, Clock, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import {
+  Plus,
+  MapPin,
+  ArrowRight,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Sparkles,
+  Camera,
+} from 'lucide-react';
 import { LeafletMap } from '../map/LeafletMap';
-import { EvidenceInputGrid, EvidenceMethod } from '../detection/EvidenceInputGrid';
+import { EvidenceInputGrid } from '../detection/EvidenceInputGrid';
+import { StatCard } from '../common/StatCard';
+import { StatusBadge } from '../common/StatusBadge';
+import { EmptyState } from '../common/EmptyState';
 
 interface CustomerDashboardProps {
   currentUser: User | null;
@@ -28,7 +41,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onNavigateToDetection,
   onLocationUpdate,
 }) => {
-  // Filter personal reports submitted by current citizen (or guest submissions)
+  // Personal reports only — no municipal-wide telemetry on the citizen view.
   const myReports = issues.filter(
     (i) =>
       i.reportedBy.userId === currentUser?.id ||
@@ -39,195 +52,174 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const stats = {
     submitted: myReports.length,
     underInspection: myReports.filter(
-      (i) => i.status === 'inspection_scheduled' || i.status === 'notified_municipality' || i.status === 'in_repair'
+      (i) =>
+        i.status === 'inspection_scheduled' ||
+        i.status === 'notified_municipality' ||
+        i.status === 'in_repair'
     ).length,
     resolved: myReports.filter((i) => i.status === 'resolved').length,
   };
 
   const recentReports = myReports.slice(0, 3);
+  const firstName = currentUser?.name?.split(' ')[0];
 
   return (
-    <div className="space-y-6 w-full">
-      {/* 1. Primary Reporting Hero Card with All 4 Input Options */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-xl">
-        <div className="relative z-10 max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Citizen Road Reporting</span>
+    <div className="w-full space-y-6">
+      {/* Reporting hero */}
+      <section className="relative overflow-hidden rounded-2xl border border-amber-500/15 bg-slate-900/80 shadow-[0_24px_60px_-30px_rgba(2,6,23,0.9)]">
+        <div className="relative z-10 max-w-3xl space-y-4 p-5 sm:p-7">
+          <span className="rg-kicker">
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            Citizen road reporting
+          </span>
+
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-50 text-balance sm:text-3xl">
+              {firstName ? `${firstName}, report a road problem` : 'Report a road problem'}
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+              Take a photo, upload an image, record a video, or upload dashcam footage. RoadGuard AI
+              detects potholes, estimates severity, and routes the report to the right municipal crew.
+            </p>
           </div>
 
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white tracking-tight text-balance">
-            Report a Road Problem
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-            Choose how you want to provide evidence. Take a photo, upload an image, record a video, or upload dashcam footage. RoadGuard AI will automatically detect potholes and notify the municipality.
-          </p>
+          <EvidenceInputGrid isActionOnly onSelectMethod={(method) => onOpenReportModal(method)} />
 
-          {/* All 4 Input Action Options: Clean 2x2 Grid on Mobile, 4-Across on Desktop */}
-          <div className="pt-1 w-full">
-            <EvidenceInputGrid
-              isActionOnly={true}
-              onSelectMethod={(method) => onOpenReportModal(method)}
-            />
-          </div>
-
-          {/* Quick link to Detection Studio */}
           {onNavigateToDetection && (
-            <div className="pt-0.5">
-              <button
-                onClick={() => onNavigateToDetection()}
-                className="text-xs text-amber-400 hover:text-amber-300 font-medium inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>Or open full Detection Studio workspace &rarr;</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToDetection()}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 transition-colors hover:text-amber-300"
+            >
+              <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+              Open the full Detection Studio
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           )}
         </div>
 
-        {/* Subtle decorative background motif */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-15 pointer-events-none hidden md:block">
-          <img
-            src={heroImg}
-            alt="Road surface"
-            className="w-full h-full object-cover"
-          />
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-2/5 md:block">
+          <img src={heroImg} alt="" className="h-full w-full object-cover opacity-25" />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/60 to-transparent" />
         </div>
-      </div>
+      </section>
 
-      {/* 2. Personal Statistics Only (Strictly personal, no municipal system telemetry) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Reports Submitted</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl sm:text-2xl font-bold font-mono text-slate-800 dark:text-slate-100 tabular-nums">
-              {stats.submitted}
-            </span>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">by you</span>
-          </div>
-        </div>
+      {/* Personal statistics */}
+      <section aria-label="Your reporting summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+        <StatCard
+          label="Reports submitted"
+          value={stats.submitted}
+          note="By you"
+          icon={FileText}
+          tone="default"
+        />
+        <StatCard
+          label="Under inspection / repair"
+          value={stats.underInspection}
+          note="Active municipal work"
+          icon={Clock}
+          tone="amber"
+        />
+        <StatCard
+          label="Resolved"
+          value={stats.resolved}
+          note="Repairs completed"
+          icon={CheckCircle2}
+          tone="success"
+        />
+      </section>
 
-        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Under Inspection / Repair</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl sm:text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">
-              {stats.underInspection}
-            </span>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">active crews</span>
-          </div>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-0.5">Resolved & Certified</span>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 tabular-nums">
-              {stats.resolved}
-            </span>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-sans">remediated</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Recent Reports & Nearby Issues Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-        {/* Your Reports Column */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">What is happening with my reports?</h3>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Personal reports */}
+        <section className="space-y-3" aria-labelledby="my-reports-heading">
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="my-reports-heading" className="text-sm font-semibold text-slate-100">
+              Your recent reports
+            </h2>
             <button
+              type="button"
               onClick={onNavigateToMyReports}
-              className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500 font-medium flex items-center gap-1 cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 transition-colors hover:text-amber-300"
             >
               View all ({myReports.length})
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
 
           {recentReports.length === 0 ? (
-            <div className="p-8 rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center space-y-3 shadow-sm">
-              <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">No reports submitted yet.</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs mx-auto">
-                Help improve municipal safety by reporting potholes in your daily commute.
-              </p>
-              <button
-                onClick={() => onOpenReportModal()}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
-              >
-                Report Your First Problem
-              </button>
-            </div>
+            <EmptyState
+              icon={AlertCircle}
+              title="No reports submitted yet"
+              description="Help improve road safety by reporting potholes on your daily commute."
+              action={
+                <button type="button" onClick={() => onOpenReportModal()} className="rg-btn rg-btn-primary">
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Report your first problem
+                </button>
+              }
+            />
           ) : (
             <div className="space-y-3">
-              {recentReports.map((issue) => {
-                const statusBadge =
-                  issue.status === 'resolved'
-                    ? { text: 'Resolved', color: 'text-emerald-600 dark:text-emerald-400' }
-                    : issue.status === 'in_repair'
-                    ? { text: 'Repair Underway', color: 'text-amber-600 dark:text-amber-400' }
-                    : issue.status === 'inspection_scheduled'
-                    ? { text: 'Under Inspection', color: 'text-blue-600 dark:text-blue-400' }
-                    : { text: 'Municipality Notified', color: 'text-amber-600 dark:text-amber-300' };
-
-                return (
-                  <div
-                    key={issue.id}
-                    onClick={() => onOpenIssueDetails(issue)}
-                    className="p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700 active:scale-[0.99] border border-slate-200 dark:border-slate-800 transition-all cursor-pointer space-y-2 group shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
-                          {issue.title}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{issue.location.street || issue.location.area}</span>
-                        </div>
-                      </div>
-
-                      {/* Clean Unboxed Status Label (Anti-Pill discipline) */}
-                      <span className={`text-xs font-semibold ${statusBadge.color}`}>
-                        {statusBadge.text}
-                      </span>
+              {recentReports.map((issue) => (
+                <button
+                  key={issue.id}
+                  type="button"
+                  onClick={() => onOpenIssueDetails(issue)}
+                  className="rg-card rg-card-interactive block w-full space-y-2 p-4 text-left"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold text-slate-100">{issue.title}</h3>
+                      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{issue.location.street || issue.location.area}</span>
+                      </p>
                     </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800/60 font-mono">
-                      <span>Ref: {issue.referenceNumber}</span>
-                      <span>{new Date(issue.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-                    </div>
+                    <StatusBadge status={issue.status} />
                   </div>
-                );
-              })}
+
+                  <div className="flex items-center justify-between border-t border-slate-700/40 pt-2 font-mono text-[11px] text-slate-500">
+                    <span>Ref {issue.referenceNumber}</span>
+                    <span>
+                      {new Date(issue.createdAt).toLocaleDateString([], {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Nearby Road Map Preview Column */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Road Problems Around You</h3>
+        {/* Nearby map */}
+        <section className="space-y-3" aria-labelledby="nearby-map-heading">
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="nearby-map-heading" className="text-sm font-semibold text-slate-100">
+              Road problems around you
+            </h2>
             <button
+              type="button"
               onClick={onNavigateToMap}
-              className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500 font-medium flex items-center gap-1 cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 transition-colors hover:text-amber-300"
             >
-              Open Full Map
-              <ArrowRight className="w-3.5 h-3.5" />
+              Open full map
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
 
-          <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-slate-700/60 shadow-lg">
             <LeafletMap
               issues={issues}
               role="citizen"
               userLocation={userLocation}
               onLocationUpdate={onLocationUpdate}
               onSelectIssue={onOpenIssueDetails}
-              height="280px"
+              height="300px"
             />
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

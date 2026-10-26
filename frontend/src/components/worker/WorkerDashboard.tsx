@@ -11,8 +11,12 @@ import {
   MapPin,
   ArrowRight,
   ClipboardList,
-  Compass,
+  Camera,
 } from 'lucide-react';
+import { PageHeader } from '../common/PageHeader';
+import { StatCard } from '../common/StatCard';
+import { SeverityBadge, StatusBadge } from '../common/StatusBadge';
+import { EmptyState } from '../common/EmptyState';
 
 interface WorkerDashboardProps {
   currentUser: User;
@@ -33,13 +37,16 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   onNavigateToDetection,
   onLocationUpdate,
 }) => {
-  // Filter issues assigned to this worker (or unassigned priority tasks in their zone)
+  // Tasks assigned to this worker, plus unclaimed open work.
   const assignedTasks = issues.filter(
     (i) => i.assignedWorkerId === currentUser.id || (!i.assignedWorkerId && i.status !== 'resolved')
   );
 
   const pendingTasks = assignedTasks.filter(
-    (i) => i.status === 'inspection_scheduled' || i.status === 'notified_municipality' || i.status === 'reported'
+    (i) =>
+      i.status === 'inspection_scheduled' ||
+      i.status === 'notified_municipality' ||
+      i.status === 'reported'
   );
 
   const inRepairTasks = assignedTasks.filter((i) => i.status === 'in_repair');
@@ -49,80 +56,76 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   );
 
   return (
-    <div className="space-y-6 w-full">
-      {/* Worker Greeting & Shift Overview */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
-        <div>
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-xs text-slate-400 font-mono">Shift Active · Quick Response Crew</span>
-          </div>
-          <h1 className="text-lg sm:text-xl font-bold text-slate-100">
-            Today's Field Work — {currentUser.name}
-          </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Assigned Zone: <span className="text-amber-400 font-medium">{currentUser.assignedZone || 'Sector 17 & 22'}</span>
-          </p>
-        </div>
+    <div className="w-full space-y-6">
+      <PageHeader
+        eyebrow={
+          <>
+            <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
+            Field crew workspace
+          </>
+        }
+        icon={<ClipboardList className="h-4 w-4" aria-hidden="true" />}
+        title={`Today's field work — ${currentUser.name}`}
+        description={
+          <>
+            Assigned zone:{' '}
+            <span className="font-medium text-amber-400">{currentUser.assignedZone || 'All sectors'}</span>. Prioritised
+            work orders, navigation, and field evidence capture.
+          </>
+        }
+        actions={
+          <button type="button" onClick={onNavigateToDetection} className="rg-btn rg-btn-primary">
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            Field camera &amp; inspection
+          </button>
+        }
+      />
 
-        <button
-          onClick={onNavigateToDetection}
-          className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm self-start sm:self-auto"
-        >
-          <Wrench className="w-4 h-4" />
-          Field Camera & Inspection
-        </button>
-      </div>
+      <section aria-label="Field workload" className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <StatCard label="Assigned tasks" value={assignedTasks.length} note="In your queue" icon={ClipboardList} />
+        <StatCard
+          label="Pending inspection"
+          value={pendingTasks.length}
+          note="Awaiting site visit"
+          icon={Clock}
+          tone="amber"
+        />
+        <StatCard
+          label="In remediation"
+          value={inRepairTasks.length}
+          note="Repair underway"
+          icon={Wrench}
+          tone="info"
+        />
+        <StatCard
+          label="Completed"
+          value={completedTasks.length}
+          note="Certified repairs"
+          icon={CheckCircle2}
+          tone="success"
+        />
+      </section>
 
-      {/* Action-Oriented Counters (Requirement 13) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Assigned Tasks</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-slate-100 tabular-nums">
-            {assignedTasks.length}
-          </span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Pending Field Inspection</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-amber-400 tabular-nums">
-            {pendingTasks.length}
-          </span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">In Active Remediation</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-blue-400 tabular-nums">
-            {inRepairTasks.length}
-          </span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Completed / Certified</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 tabular-nums">
-            {completedTasks.length}
-          </span>
-        </div>
-      </div>
-
-      {/* Priority Tasks Grid & Worker Assigned Route Map */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">
-        {/* Priority Field Queue (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              <span>Priority Field Tasks ({highPriorityTasks.length})</span>
-            </h3>
-            <span className="text-xs text-slate-400 font-mono">Sorted by urgency</span>
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-12">
+        {/* Priority queue */}
+        <section className="space-y-3 lg:col-span-7" aria-labelledby="priority-tasks-heading">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2
+              id="priority-tasks-heading"
+              className="flex items-center gap-2 text-sm font-semibold text-slate-100"
+            >
+              <AlertTriangle className="h-4 w-4 text-amber-400" aria-hidden="true" />
+              Priority field tasks ({highPriorityTasks.length})
+            </h2>
+            <span className="font-mono text-[11px] text-slate-500">Sorted by urgency</span>
           </div>
 
           {highPriorityTasks.length === 0 ? (
-            <div className="p-8 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-              <p className="text-xs text-slate-200 font-medium">All high-priority road tasks addressed!</p>
-              <p className="text-xs text-slate-500">Check standard queue for routine maintenance.</p>
-            </div>
+            <EmptyState
+              icon={CheckCircle2}
+              title="No high-priority tasks open"
+              description="All critical and high severity work in your queue is complete. Routine maintenance remains available."
+            />
           ) : (
             <div className="space-y-3">
               {highPriorityTasks.map((task) => {
@@ -135,94 +138,89 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
                     )} km`
                   : null;
 
-                const severityColor =
-                  task.severity === 'critical' ? 'text-rose-400' : 'text-amber-400';
-
                 return (
-                  <div
-                    key={task.id}
-                    className="p-4 rounded-xl bg-slate-900 border border-slate-800/90 hover:border-slate-700 hover:bg-slate-850 active:bg-slate-800 active:scale-[0.995] transition-all space-y-3 shadow-sm select-none"
-                  >
-                    <div className="flex items-center justify-between gap-2">
+                  <article key={task.id} className="rg-card space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-slate-300">
-                          {task.referenceNumber}
-                        </span>
+                        <span className="font-mono text-xs font-bold text-slate-300">{task.referenceNumber}</span>
                         {distanceStr && (
                           <>
-                            <span className="text-slate-600">·</span>
-                            <span className="text-xs font-mono text-sky-400">📍 {distanceStr}</span>
+                            <span className="text-slate-600" aria-hidden="true">
+                              ·
+                            </span>
+                            <span className="flex items-center gap-1 font-mono text-xs text-sky-400">
+                              <MapPin className="h-3 w-3" aria-hidden="true" />
+                              {distanceStr}
+                            </span>
                           </>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded border capitalize ${
-                            task.severity === 'critical'
-                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          }`}
-                        >
-                          {task.severity}
-                        </span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 capitalize">
-                          {task.status.replace(/_/g, ' ')}
-                        </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <SeverityBadge severity={task.severity} />
+                        <StatusBadge status={task.status} />
                       </div>
                     </div>
 
-                    <h4 className="text-sm font-semibold text-slate-100 leading-snug">{task.title}</h4>
+                    <h3 className="text-sm font-semibold leading-snug text-slate-100">{task.title}</h3>
 
-                    <p className="text-xs text-slate-400 line-clamp-1 flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      <span>{task.location.street || task.location.area}, {task.location.city}</span>
+                    <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
+                      <span className="truncate">
+                        {task.location.street || task.location.area}, {task.location.city}
+                      </span>
                     </p>
 
-                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/80 text-xs">
-                      <span className="text-slate-500 text-[11px] font-mono">
-                        SLA Target: 24h
+                    <div className="flex items-center justify-between gap-2 border-t border-slate-700/40 pt-2.5">
+                      <span className="font-mono text-[11px] text-slate-500">
+                        {task.severity === 'critical' ? 'Immediate response' : 'High priority'}
                       </span>
 
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             const url = `https://www.google.com/maps/dir/?api=1&destination=${task.location.lat},${task.location.lng}`;
-                            window.open(url, '_blank');
+                            window.open(url, '_blank', 'noopener,noreferrer');
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
+                          className="rg-btn rg-btn-secondary rg-btn-sm"
                         >
-                          <Navigation className="w-3.5 h-3.5 text-amber-400" />
-                          <span>GPS</span>
+                          <Navigation className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                          GPS
                         </button>
                         <button
+                          type="button"
                           onClick={() => onOpenTask(task)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                          className="rg-btn rg-btn-primary rg-btn-sm"
                         >
-                          <span>Open Task</span>
-                          <ArrowRight className="w-3 h-3" />
+                          Open task
+                          <ArrowRight className="h-3 w-3" aria-hidden="true" />
                         </button>
                       </div>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
           )}
-        </div>
+        </section>
 
-        {/* Worker Assigned Issues Route Map (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-200">Assigned Road Issues</h3>
+        {/* Route map */}
+        <section className="space-y-3 lg:col-span-5" aria-labelledby="route-map-heading">
+          <div className="flex items-center justify-between gap-2">
+            <h2 id="route-map-heading" className="text-sm font-semibold text-slate-100">
+              Assigned road issues
+            </h2>
             <button
+              type="button"
               onClick={onNavigateToMap}
-              className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 transition-colors hover:text-amber-300"
             >
-              Full Route View &rarr;
+              Full route view
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
 
-          <div className="rounded-xl overflow-hidden border border-slate-800 shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-slate-700/60 shadow-lg">
             <LeafletMap
               issues={issues}
               role="worker"
@@ -233,7 +231,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
               height="380px"
             />
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

@@ -1,20 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { User, UserRole, AppNotification, ServerHealth } from '../../types';
-import { storage } from '../../services/storage';
 import {
   Bell,
   User as UserIcon,
   ChevronDown,
-  Shield,
-  Wrench,
-  CheckCircle2,
-  X,
-  LogOut,
-  Sparkles,
   Settings,
-  Sun,
-  Moon,
-  Scan,
+  LogOut,
+  LifeBuoy,
+  ShieldCheck,
+  Wrench,
+  Compass,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,10 +23,59 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   activeNavTab?: string;
   onSelectNavTab?: (tab: string) => void;
-  currentTheme?: 'dark' | 'light';
-  onToggleTheme?: () => void;
+  onGoToLanding?: () => void;
+  onSignOut?: () => void;
   serverHealth?: ServerHealth | null;
 }
+
+interface NavLink {
+  id: string;
+  label: string;
+}
+
+const ROLE_META: Record<
+  UserRole,
+  { label: string; desc: string; icon: React.ReactNode }
+> = {
+  citizen: {
+    label: 'Citizen Portal',
+    desc: 'Report & track road hazards',
+    icon: <UserIcon className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+  worker: {
+    label: 'Field Technician',
+    desc: 'Work orders & inspections',
+    icon: <Wrench className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+  inspector: {
+    label: 'Municipal Inspector',
+    desc: 'Oversight, dispatch & analytics',
+    icon: <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+};
+
+const ROLE_NAV: Record<UserRole, NavLink[]> = {
+  citizen: [
+    { id: 'home', label: 'Dashboard' },
+    { id: 'detection', label: 'Detection Studio' },
+    { id: 'reports', label: 'My Reports' },
+    { id: 'map', label: 'Road Map' },
+  ],
+  worker: [
+    { id: 'dashboard', label: "Today's Work" },
+    { id: 'tasks', label: 'My Tasks' },
+    { id: 'map', label: 'Route Map' },
+    { id: 'detection', label: 'Detection Studio' },
+  ],
+  inspector: [
+    { id: 'overview', label: 'Overview' },
+    { id: 'issues', label: 'Road Issues' },
+    { id: 'assignments', label: 'Assignments' },
+    { id: 'map', label: 'Live Map' },
+    { id: 'reports', label: 'Reports' },
+    { id: 'analytics', label: 'Analytics' },
+  ],
+};
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
@@ -44,108 +88,167 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   activeNavTab,
   onSelectNavTab,
-  currentTheme = 'dark',
-  onToggleTheme,
+  onGoToLanding,
+  onSignOut,
   serverHealth,
 }) => {
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const roleMenuRef = useRef<HTMLDivElement>(null);
+  const notifMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  const roleTitles: Record<UserRole, { label: string; desc: string }> = {
-    citizen: { label: 'Citizen Portal', desc: 'Report & Track' },
-    worker: { label: 'Field Technician', desc: 'Work Orders & Inspection' },
-    inspector: { label: 'Municipal Inspector', desc: 'Full Oversight & Dispatch' },
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const navLinks = ROLE_NAV[activeRole];
+
+  const closeAllMenus = () => {
+    setShowRoleMenu(false);
+    setShowNotifMenu(false);
+    setShowUserMenu(false);
   };
+
+  // Escape closes menus; pointer-down outside dismisses them.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeAllMenus();
+    };
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        !roleMenuRef.current?.contains(target) &&
+        !notifMenuRef.current?.contains(target) &&
+        !userMenuRef.current?.contains(target)
+      ) {
+        closeAllMenus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, []);
 
   const getStatusInfo = () => {
     if (!serverHealth) {
       return {
-        label: 'Offline',
-        color: 'bg-rose-500',
+        label: 'Service offline',
+        dot: 'bg-rose-500',
         title: 'Backend server not reachable',
       };
     }
     if (serverHealth.modelReachable) {
       return {
-        label: 'YOLOv11 Active',
-        color: 'bg-emerald-500',
-        title: 'Roboflow YOLOv11 segmentation model ready',
+        label: 'AI service online',
+        dot: 'bg-emerald-500',
+        title: 'Roboflow segmentation endpoint reachable',
       };
     }
     if (serverHealth.apiKeyConfigured) {
       return {
-        label: 'Model Ready',
-        color: 'bg-amber-500',
-        title: 'Roboflow key configured',
+        label: 'API configured',
+        dot: 'bg-amber-500',
+        title: 'Roboflow key configured; model probe unavailable',
       };
     }
     return {
       label: 'Connecting',
-      color: 'bg-amber-400',
-      title: 'Connecting to inference server',
+      dot: 'bg-amber-400',
+      title: 'Connecting to the inference service',
     };
   };
 
   const status = getStatusInfo();
 
-  return (
-    <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors shrink-0">
-      <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
-        {/* Zone 1: Single text element wordmark */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <a
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              if (onSelectNavTab) onSelectNavTab('home');
-            }}
-            className="flex items-center gap-2 text-slate-100 group shrink-0"
-          >
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 font-bold text-xs sm:text-sm shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
-              RG
-            </div>
-            <span className="text-base sm:text-lg font-bold tracking-tight text-slate-100 font-sans">
-              <span>RoadGuard</span><span className="text-amber-400">AI</span>
-            </span>
-          </a>
+  const goToPlatform = () => {
+    closeAllMenus();
+    if (onGoToLanding) onGoToLanding();
+    else onSelectNavTab?.('home');
+  };
 
-          {/* Quick Role Switcher Chip */}
-          <div className="relative">
+  const selectNav = (tab: string) => {
+    closeAllMenus();
+    onSelectNavTab?.(tab);
+  };
+
+  return (
+    <header className="sticky top-0 z-40 w-full shrink-0 border-b border-slate-700/50 bg-slate-950/80 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
+        {/* Zone 1: Wordmark + workspace switcher */}
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={goToPlatform}
+            className="group flex shrink-0 items-center gap-2 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400"
+            aria-label="RoadGuard AI — platform overview"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500 text-xs font-extrabold text-slate-950 shadow-md shadow-amber-500/20 transition-transform group-hover:scale-105">
+              RG
+            </span>
+            <span className="text-base font-bold tracking-tight text-slate-100 sm:text-lg">
+              RoadGuard<span className="text-amber-400">AI</span>
+            </span>
+          </button>
+
+          {/* Workspace switcher */}
+          <div className="relative" ref={roleMenuRef}>
             <button
-              onClick={() => setShowRoleMenu(!showRoleMenu)}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 font-medium transition-colors"
+              type="button"
+              onClick={() => {
+                setShowRoleMenu((open) => !open);
+                setShowNotifMenu(false);
+                setShowUserMenu(false);
+              }}
+              aria-expanded={showRoleMenu}
+              aria-haspopup="menu"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-700/70 bg-slate-900/70 px-2 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
-              <span className="capitalize">{activeRole}</span>
-              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+              <span className="hidden capitalize sm:inline">{activeRole}</span>
+              <ChevronDown
+                className={`h-3 w-3 shrink-0 text-slate-400 transition-transform ${showRoleMenu ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              />
             </button>
 
             {showRoleMenu && (
-              <div className="absolute left-0 mt-2 w-64 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl py-2 z-50 text-xs">
-                <div className="px-3 py-1.5 text-slate-400 font-mono text-[11px] uppercase tracking-wider border-b border-slate-800 mb-1">
-                  Switch Active Role
+              <div
+                role="menu"
+                aria-label="Switch workspace"
+                className="absolute left-0 z-50 mt-2 w-64 rounded-xl border border-slate-700/80 bg-slate-900 py-2 text-xs shadow-2xl"
+              >
+                <div className="mb-1 border-b border-slate-800 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-slate-400">
+                  Switch workspace
                 </div>
                 {(['citizen', 'worker', 'inspector'] as UserRole[]).map((role) => (
                   <button
                     key={role}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={activeRole === role}
                     onClick={() => {
                       onRoleChange(role);
                       setShowRoleMenu(false);
                     }}
-                    className={`w-full text-left px-3 py-2 flex items-center justify-between transition-colors ${
+                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
                       activeRole === role
-                        ? 'bg-amber-500/10 text-amber-400 font-semibold'
+                        ? 'bg-amber-500/10 text-amber-300'
                         : 'text-slate-300 hover:bg-slate-800'
                     }`}
                   >
-                    <div>
-                      <div className="capitalize">{roleTitles[role].label}</div>
-                      <div className="text-[11px] text-slate-400">{roleTitles[role].desc}</div>
-                    </div>
-                    {activeRole === role && <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>}
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-700/60 bg-slate-800/50 text-slate-400">
+                      {ROLE_META[role].icon}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold">{ROLE_META[role].label}</span>
+                      <span className="block truncate text-[11px] text-slate-400">{ROLE_META[role].desc}</span>
+                    </span>
+                    {activeRole === role && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                    )}
                   </button>
                 ))}
               </div>
@@ -153,213 +256,110 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Zone 2: Navigation Links (Clean text links with subtle hover, single-line) */}
-        <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-400">
-          {activeRole === 'citizen' && (
-            <>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('home')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'home' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Dashboard
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('detection')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'detection' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Detection Studio
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('reports')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'reports' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                My Reports
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('map')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'map' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Road Map
-              </button>
-            </>
-          )}
-
-          {activeRole === 'worker' && (
-            <>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('dashboard')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'dashboard' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Today's Work
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('tasks')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'tasks' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                My Tasks
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('map')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'map' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Route Map
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('detection')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'detection' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Detection Studio
-              </button>
-            </>
-          )}
-
-          {activeRole === 'inspector' && (
-            <>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('overview')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'overview' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Overview
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('issues')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'issues' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Road Issues
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('assignments')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'assignments' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Assignments
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('map')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'map' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Live Map
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('reports')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'reports' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Reports
-              </button>
-              <button
-                onClick={() => onSelectNavTab && onSelectNavTab('analytics')}
-                className={`hover:text-slate-100 transition-colors ${
-                  activeNavTab === 'analytics' ? 'text-amber-400 font-semibold' : ''
-                }`}
-              >
-                Analytics
-              </button>
-            </>
-          )}
+        {/* Zone 2: Primary workspace navigation */}
+        <nav
+          className="hidden items-center gap-1 text-xs font-medium text-slate-400 md:flex"
+          aria-label="Primary"
+        >
+          <button
+            type="button"
+            onClick={goToPlatform}
+            aria-current={activeNavTab === 'landing' ? 'page' : undefined}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-slate-800/60 hover:text-slate-100 ${
+              activeNavTab === 'landing' ? 'bg-slate-800/60 text-amber-400' : ''
+            }`}
+          >
+            <Compass className="h-3.5 w-3.5" aria-hidden="true" />
+            Platform
+          </button>
+          <span className="mx-1 h-4 w-px bg-slate-700/70" aria-hidden="true" />
+          {navLinks.map((link) => (
+            <button
+              key={link.id}
+              type="button"
+              onClick={() => selectNav(link.id)}
+              aria-current={activeNavTab === link.id ? 'page' : undefined}
+              className={`rounded-lg px-2.5 py-1.5 transition-colors hover:bg-slate-800/60 hover:text-slate-100 ${
+                activeNavTab === link.id ? 'bg-slate-800/60 font-semibold text-amber-400' : ''
+              }`}
+            >
+              {link.label}
+            </button>
+          ))}
         </nav>
 
-        {/* Zone 3: Primary Actions (Health Badge, Theme Toggle, Report CTA, Notification Icon, User Profile) */}
+        {/* Zone 3: Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Real Backend / AI Status Badge */}
+          {/* Live service status */}
           <div
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-700 dark:text-slate-300"
+            className="hidden items-center gap-1.5 rounded-full border border-slate-700/70 bg-slate-900/70 px-2.5 py-1 font-mono text-[11px] text-slate-300 sm:flex"
             title={status.title}
           >
-            <span className={`w-2 h-2 rounded-full ${status.color} shadow-sm`} />
+            <span className={`h-2 w-2 rounded-full ${status.dot} shadow-sm`} aria-hidden="true" />
             <span>{status.label}</span>
           </div>
 
-          {/* Light / Dark Mode Toggle */}
-          {onToggleTheme && (
-            <button
-              onClick={onToggleTheme}
-              className="p-1.5 sm:p-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-              title={`Switch to ${currentTheme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              aria-label="Toggle Color Theme"
-            >
-              {currentTheme === 'dark' ? (
-                <Sun className="w-4 h-4 text-amber-400" />
-              ) : (
-                <Moon className="w-4 h-4 text-slate-700" />
-              )}
-            </button>
-          )}
-
           {activeRole === 'citizen' && (
             <button
+              type="button"
               onClick={onOpenReportModal}
-              className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm transition-colors whitespace-nowrap cursor-pointer"
+              className="rg-btn rg-btn-primary hidden h-9 sm:inline-flex"
             >
               <span>+ Report Problem</span>
             </button>
           )}
 
-          {/* Notifications Icon */}
-          <div className="relative">
+          {/* Notifications */}
+          <div className="relative" ref={notifMenuRef}>
             <button
+              type="button"
               onClick={() => {
-                setShowNotifMenu(!showNotifMenu);
-                if (!showNotifMenu) onMarkNotificationsRead();
+                const next = !showNotifMenu;
+                setShowNotifMenu(next);
+                setShowRoleMenu(false);
+                setShowUserMenu(false);
+                if (next) onMarkNotificationsRead();
               }}
-              className="p-1.5 sm:p-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 relative transition-colors cursor-pointer"
-              aria-label="Notifications"
+              className="rg-icon-btn relative h-9 w-9"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              aria-expanded={showNotifMenu}
+              aria-haspopup="menu"
             >
-              <Bell className="w-4 h-4" />
+              <Bell className="h-4 w-4" aria-hidden="true" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 font-mono text-[10px] font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 font-mono text-[10px] font-bold text-slate-950">
                   {unreadCount}
                 </span>
               )}
             </button>
 
             {showNotifMenu && (
-              <div className="absolute right-0 mt-2 w-80 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-3 z-50 text-xs space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">Notifications</span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">{activeRole} Alerts</span>
+              <div
+                role="menu"
+                aria-label="Notifications"
+                className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-700/80 bg-slate-900 p-3 text-xs shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="font-semibold text-slate-200">Notifications</span>
+                  <span className="font-mono text-[11px] capitalize text-slate-400">{activeRole} alerts</span>
                 </div>
 
-                <div className="max-h-72 overflow-y-auto space-y-2">
+                <div className="max-h-72 space-y-2 overflow-y-auto pt-2">
                   {notifications.length === 0 ? (
-                    <p className="text-slate-500 text-center py-4">No notifications.</p>
+                    <p className="py-6 text-center text-slate-500">No notifications yet.</p>
                   ) : (
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        className={`p-2.5 rounded-lg border transition-colors ${
+                        className={`rounded-lg border p-2.5 transition-colors ${
                           n.read
-                            ? 'bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800/80 text-slate-600 dark:text-slate-400'
-                            : 'bg-amber-50 dark:bg-slate-950 border-amber-300 dark:border-amber-500/30 text-slate-800 dark:text-slate-200'
+                            ? 'border-slate-800/80 bg-slate-950/40 text-slate-400'
+                            : 'border-amber-500/30 bg-slate-950 text-slate-200'
                         }`}
                       >
-                        <div className="flex justify-between items-start mb-0.5">
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">{n.title}</span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{n.timestamp}</span>
+                        <div className="mb-0.5 flex items-start justify-between gap-2">
+                          <span className="font-semibold text-slate-100">{n.title}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-slate-500">{n.timestamp}</span>
                         </div>
                         <p className="text-[11px] leading-relaxed">{n.message}</p>
                       </div>
@@ -370,54 +370,106 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* User Account / Profile button */}
-          <div className="relative">
+          {/* Account menu */}
+          <div className="relative" ref={userMenuRef}>
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors cursor-pointer"
+              type="button"
+              onClick={() => {
+                setShowUserMenu((open) => !open);
+                setShowRoleMenu(false);
+                setShowNotifMenu(false);
+              }}
+              className="flex items-center gap-2 rounded-lg border border-slate-700/70 bg-slate-900/70 p-1.5 transition-colors hover:border-slate-600"
+              aria-expanded={showUserMenu}
+              aria-haspopup="menu"
+              aria-label="Account menu"
             >
-              <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold text-xs">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/20 text-xs font-bold text-amber-400">
                 {currentUser ? currentUser.name[0] : 'G'}
-              </div>
-              <span className="hidden sm:inline text-xs font-medium text-slate-700 dark:text-slate-200 truncate max-w-[120px]">
+              </span>
+              <span className="hidden max-w-[120px] truncate text-xs font-medium text-slate-200 sm:inline">
                 {currentUser ? currentUser.name : 'Guest'}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-slate-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              />
             </button>
 
             {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl py-2 z-50 text-xs">
-                <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800">
-                  <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+              <div
+                role="menu"
+                aria-label="Account"
+                className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-slate-700/80 bg-slate-900 py-2 text-xs shadow-2xl"
+              >
+                <div className="border-b border-slate-800 px-3 py-2">
+                  <div className="truncate font-semibold text-slate-100">
                     {currentUser ? currentUser.name : 'Guest User'}
                   </div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {currentUser ? currentUser.email : 'Unauthenticated'}
+                  <div className="truncate text-[11px] text-slate-400">
+                    {currentUser ? currentUser.email : 'Not signed in'}
+                  </div>
+                  <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-300">
+                    {ROLE_META[activeRole].label}
                   </div>
                 </div>
 
                 <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => {
-                    setShowUserMenu(false);
+                    closeAllMenus();
                     onOpenAuthModal();
                   }}
-                  className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 cursor-pointer"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-300 transition-colors hover:bg-slate-800"
                 >
-                  <UserIcon className="w-3.5 h-3.5" />
-                  <span>{currentUser ? 'Switch User / Login' : 'Sign In / Register'}</span>
+                  <UserIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>{currentUser ? 'Switch user / sign in' : 'Sign in / register'}</span>
                 </button>
 
                 {onOpenSettings && (
                   <button
+                    type="button"
+                    role="menuitem"
                     onClick={() => {
-                      setShowUserMenu(false);
+                      closeAllMenus();
                       onOpenSettings();
                     }}
-                    className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 cursor-pointer"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-300 transition-colors hover:bg-slate-800"
                   >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>Municipal Demo Settings</span>
+                    <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Municipal settings</span>
                   </button>
+                )}
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeAllMenus();
+                    goToPlatform();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-300 transition-colors hover:bg-slate-800"
+                >
+                  <LifeBuoy className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Platform overview</span>
+                </button>
+
+                {onSignOut && currentUser && (
+                  <div className="mt-1 border-t border-slate-800 pt-1">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        closeAllMenus();
+                        onSignOut();
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-rose-300 transition-colors hover:bg-rose-500/10"
+                    >
+                      <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Sign out</span>
+                    </button>
+                  </div>
                 )}
               </div>
             )}

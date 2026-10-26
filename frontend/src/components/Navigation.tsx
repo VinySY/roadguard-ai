@@ -61,10 +61,10 @@ export const Navigation: React.FC<NavigationProps> = ({
     }
     if (serverHealth.modelReachable) {
       return {
-        label: 'YOLOv11 Online',
+        label: 'RF-DETR Online',
         color: 'bg-emerald-500',
         glow: 'shadow-emerald-500/40',
-        title: 'Roboflow YOLOv11 segmentation model ready'
+        title: 'Roboflow RF-DETR segmentation model ready'
       };
     }
     if (serverHealth.apiKeyConfigured) {
@@ -204,7 +204,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             </div>
 
             <div className="pt-6 border-t border-slate-800 text-xs text-slate-500">
-              <p>Model Engine: Roboflow YOLOv11</p>
+              <p>Model Engine: Roboflow RF-DETR</p>
               <p className="mt-1">Pavement Segmentation Service</p>
             </div>
           </div>

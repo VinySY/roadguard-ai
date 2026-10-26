@@ -207,7 +207,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-amber-400" />
-                    <span>Monthly Defect &amp; Inspection Volume Trends</span>
+                    <span>Monthly Raw Detection &amp; Inspection Volume Trends</span>
                   </h3>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
                     HISTORICAL
@@ -225,7 +225,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           <div className="flex justify-between items-center text-slate-300 font-bold">
                             <span>{trend.month}</span>
                             <span className="text-[11px] text-slate-400">
-                              {trend.inspections} Scans · <strong className="text-amber-400">{trend.detections} Defect Hits</strong>
+                              {trend.inspections} Scans · <strong className="text-amber-400">{trend.detections} raw detections</strong>
                             </span>
                           </div>
 
@@ -344,7 +344,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </div>
 
               <div className="pt-3 border-t border-slate-800 text-[10px] font-mono text-slate-500">
-                Calculated from all persisted YOLOv11 detections
+                Calculated from all persisted RF-DETR detections
               </div>
             </div>
 

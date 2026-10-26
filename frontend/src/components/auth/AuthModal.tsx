@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { User, UserRole } from '../../types';
 import { storage, DEMO_USERS } from '../../services/storage';
-import { X, User as UserIcon, Shield, Wrench, CheckCircle2, Lock, ArrowRight } from 'lucide-react';
+import { X, Shield, Wrench, UserCheck } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -10,17 +10,24 @@ interface AuthModalProps {
   onUserChanged: (user: User | null, role: UserRole) => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({
-  isOpen,
-  onClose,
-  currentUser,
-  onUserChanged,
-}) => {
-  const [activeTab, setActiveTab] = useState<'citizen' | 'staff'>('citizen');
+type AuthTab = 'citizen' | 'staff';
+
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onUserChanged }) => {
+  const [activeTab, setActiveTab] = useState<AuthTab>('citizen');
   const [citizenEmail, setCitizenEmail] = useState('');
   const [citizenName, setCitizenName] = useState('');
   const [staffRole, setStaffRole] = useState<'worker' | 'inspector'>('worker');
   const [staffCode, setStaffCode] = useState('');
+
+  // Escape closes the access dialog.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -56,153 +63,188 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-100 flex flex-col">
+    <div className="rg-animate-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-modal-title"
+        className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 text-slate-100 shadow-2xl"
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-xs">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-xs font-extrabold text-slate-950">
               RG
-            </div>
-            <h3 className="text-sm font-semibold text-slate-100">RoadGuard AI Access</h3>
+            </span>
+            <h3 id="auth-modal-title" className="text-sm font-semibold text-slate-100">
+              RoadGuard AI access
+            </h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-4 h-4" />
+          <button type="button" onClick={onClose} className="rg-icon-btn" aria-label="Close sign-in dialog">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Tab Selection: Citizen vs Staff (Requirement 7) */}
-        <div className="flex border-b border-slate-800 text-xs">
+        {/* Tab selection: citizen vs municipal staff */}
+        <div role="tablist" aria-label="Sign-in type" className="flex border-b border-slate-800 text-xs">
           <button
+            type="button"
+            role="tab"
+            id="auth-tab-citizen"
+            aria-selected={activeTab === 'citizen'}
+            aria-controls="auth-panel-citizen"
             onClick={() => setActiveTab('citizen')}
-            className={`flex-1 py-3 text-center font-medium transition-colors border-b-2 ${
+            className={`flex-1 border-b-2 py-3 text-center font-medium transition-colors ${
               activeTab === 'citizen'
-                ? 'border-amber-500 text-amber-400 font-semibold bg-slate-950/40'
+                ? 'border-amber-500 bg-slate-950/40 font-semibold text-amber-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Citizen Sign In
+            Citizen sign in
           </button>
           <button
+            type="button"
+            role="tab"
+            id="auth-tab-staff"
+            aria-selected={activeTab === 'staff'}
+            aria-controls="auth-panel-staff"
             onClick={() => setActiveTab('staff')}
-            className={`flex-1 py-3 text-center font-medium transition-colors border-b-2 ${
+            className={`flex-1 border-b-2 py-3 text-center font-medium transition-colors ${
               activeTab === 'staff'
-                ? 'border-amber-500 text-amber-400 font-semibold bg-slate-950/40'
+                ? 'border-amber-500 bg-slate-950/40 font-semibold text-amber-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Municipal Staff Portal
+            Municipal staff portal
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-4">
+        <div className="space-y-4 overflow-y-auto p-5 sm:p-6">
           {activeTab === 'citizen' ? (
-            <form onSubmit={handleCitizenLogin} className="space-y-4">
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Sign in to track your road defect submissions, receive municipal inspection updates, and verify repaired road sites.
+            <form
+              onSubmit={handleCitizenLogin}
+              className="space-y-4"
+              role="tabpanel"
+              id="auth-panel-citizen"
+              aria-labelledby="auth-tab-citizen"
+            >
+              <p className="text-xs leading-relaxed text-slate-400">
+                Sign in to track your road defect submissions, receive municipal inspection updates, and
+                verify repaired road sites.
               </p>
 
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Your Full Name</label>
+                <label htmlFor="auth-name" className="mb-1 block text-[11px] text-slate-400">
+                  Your full name
+                </label>
                 <input
+                  id="auth-name"
                   type="text"
                   value={citizenName}
                   onChange={(e) => setCitizenName(e.target.value)}
                   placeholder="e.g. Aarav Sharma"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  autoComplete="name"
+                  className="rg-input"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Email Address</label>
+                <label htmlFor="auth-email" className="mb-1 block text-[11px] text-slate-400">
+                  Email address
+                </label>
                 <input
+                  id="auth-email"
                   type="email"
                   value={citizenEmail}
                   onChange={(e) => setCitizenEmail(e.target.value)}
                   placeholder="aarav.sharma@example.com"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  autoComplete="email"
+                  className="rg-input"
                 />
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm transition-colors"
-              >
-                Sign In & Remember Session
+              <button type="submit" className="rg-btn rg-btn-primary w-full">
+                Sign in &amp; remember session
               </button>
 
-              <div className="pt-2 border-t border-slate-800 text-center">
+              <div className="border-t border-slate-800 pt-3 text-center">
                 <button
                   type="button"
                   onClick={handleContinueAsGuest}
-                  className="text-xs text-slate-400 hover:text-slate-200 underline"
+                  className="text-xs text-slate-400 underline transition-colors hover:text-slate-200"
                 >
-                  Continue as Anonymous Citizen (Guest Mode)
+                  Continue as anonymous citizen (guest mode)
                 </button>
               </div>
             </form>
           ) : (
-            <form onSubmit={handleStaffLogin} className="space-y-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-start gap-2">
-                <Shield className="w-4 h-4 shrink-0 mt-0.5" />
+            <form
+              onSubmit={handleStaffLogin}
+              className="space-y-4"
+              role="tabpanel"
+              id="auth-panel-staff"
+              aria-labelledby="auth-tab-staff"
+            >
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <Shield className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>
-                  Official Municipal Credentials: Select your operational capacity to enter the staff workstation.
+                  Demo staff access. Choose your operational capacity to enter the municipal workstation.
                 </span>
               </div>
 
-              <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Staff Role</label>
+              <fieldset>
+                <legend className="mb-1 block text-[11px] text-slate-400">Staff role</legend>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setStaffRole('worker')}
-                    className={`p-3 rounded-lg border text-left transition-all ${
+                    aria-pressed={staffRole === 'worker'}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
                       staffRole === 'worker'
-                        ? 'bg-slate-950 border-amber-500 text-amber-400 font-semibold'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                        ? 'border-amber-500 bg-slate-950 font-semibold text-amber-400'
+                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <Wrench className="w-4 h-4 mb-1" />
-                    <div className="text-xs">Field Technician</div>
-                    <div className="text-[10px] text-slate-500">Quick Response Crew</div>
+                    <Wrench className="mb-1 h-4 w-4" aria-hidden="true" />
+                    <span className="block text-xs">Field technician</span>
+                    <span className="block text-[10px] text-slate-500">Quick response crew</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setStaffRole('inspector')}
-                    className={`p-3 rounded-lg border text-left transition-all ${
+                    aria-pressed={staffRole === 'inspector'}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
                       staffRole === 'inspector'
-                        ? 'bg-slate-950 border-amber-500 text-amber-400 font-semibold'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                        ? 'border-amber-500 bg-slate-950 font-semibold text-amber-400'
+                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <Shield className="w-4 h-4 mb-1" />
-                    <div className="text-xs">Chief Inspector</div>
-                    <div className="text-[10px] text-slate-500">Municipal Operations</div>
+                    <Shield className="mb-1 h-4 w-4" aria-hidden="true" />
+                    <span className="block text-xs">Chief inspector</span>
+                    <span className="block text-[10px] text-slate-500">Municipal operations</span>
                   </button>
                 </div>
-              </div>
+              </fieldset>
 
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1">Municipal Department Badge</label>
+                <label htmlFor="auth-badge" className="mb-1 block text-[11px] text-slate-400">
+                  Municipal department badge <span className="text-slate-500">(optional for demo)</span>
+                </label>
                 <input
+                  id="auth-badge"
                   type="text"
                   value={staffCode}
                   onChange={(e) => setStaffCode(e.target.value)}
-                  placeholder="MCC-ENG-2026 (Optional for Demo)"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  placeholder="MCC-ENG-2026"
+                  className="rg-input font-mono"
                 />
               </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm transition-colors"
-              >
-                Authenticate & Enter Workstation
+              <button type="submit" className="rg-btn rg-btn-primary w-full">
+                <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Authenticate &amp; enter workstation
               </button>
             </form>
           )}

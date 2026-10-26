@@ -1,20 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoadIssue, SeverityLevel, IssueStatus, User } from '../../types';
 import { storage, DEMO_USERS } from '../../services/storage';
 import {
   Search,
-  Filter,
   MapPin,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
-  UserCheck,
-  Building2,
   ChevronRight,
   X,
   Mail,
+  Layers,
 } from 'lucide-react';
 import { MunicipalEmailModal } from '../reporting/MunicipalEmailModal';
+import { EvidenceImage } from '../common/EvidenceImage';
+import { PageHeader } from '../common/PageHeader';
+import { EmptyState } from '../common/EmptyState';
+import { SeverityBadge, StatusBadge } from '../common/StatusBadge';
 
 interface RoadIssuesViewProps {
   issues: RoadIssue[];
@@ -36,6 +36,23 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
     selectedIssueId ? issues.find((i) => i.id === selectedIssueId) || null : null
   );
   const [emailModalIssue, setEmailModalIssue] = useState<RoadIssue | null>(null);
+
+  // Keep the drawer selection in sync with map / dashboard deep links.
+  useEffect(() => {
+    if (selectedIssueId) {
+      setActiveIssue(issues.find((i) => i.id === selectedIssueId) || null);
+    }
+  }, [selectedIssueId, issues]);
+
+  // Escape closes the incident drawer.
+  useEffect(() => {
+    if (!activeIssue) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActiveIssue(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [activeIssue]);
 
   const workers = [DEMO_USERS.worker, { id: 'user-wrk-02', name: 'Surjit Singh (Crew 2)', role: 'worker' as const }];
 
@@ -79,48 +96,52 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-xl font-bold text-slate-100">Municipal Road Issues Registry</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Complete database of reported roadway defects, field assessments, and repair statuses.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow={
+          <>
+            <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+            Municipal registry
+          </>
+        }
+        icon={<Layers className="h-4 w-4" aria-hidden="true" />}
+        title="Road issues registry"
+        description="Complete database of reported roadway defects, field assessments, and repair statuses."
+      />
 
-      {/* Filter and Search Bar in normal document flow */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800/90 p-3.5 sm:p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-          {/* Search Input */}
+      {/* Filters */}
+      <div className="rg-panel space-y-3 rounded-xl p-3.5 sm:p-4">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+          {/* Search */}
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" aria-hidden="true" />
             <input
-              type="text"
+              type="search"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by roadway, sector, or reference ID..."
-              className="w-full h-10 bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-8 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
+              placeholder="Search by roadway, sector, or reference ID…"
+              aria-label="Search road issues"
+              className="rg-input h-10 !pl-9 !pr-8"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300 p-1"
+                className="absolute right-2.5 top-2.5 p-1 text-slate-500 hover:text-slate-300"
                 aria-label="Clear search"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
 
-          {/* Symmetrical Dropdowns on Mobile, inline on Desktop */}
-          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
             <select
               value={severityFilter}
-              onChange={(e) => setSeverityFilter(e.target.value as any)}
-              className="w-full sm:w-auto h-10 bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
+              onChange={(e) => setSeverityFilter(e.target.value as SeverityLevel | 'all')}
+              aria-label="Filter by severity"
+              className="rg-select h-10 !py-2 sm:w-auto"
             >
-              <option value="all">All Severities</option>
+              <option value="all">All severities</option>
               <option value="critical">Critical</option>
               <option value="high">High</option>
               <option value="medium">Medium</option>
@@ -130,31 +151,33 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full sm:w-auto h-10 bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
+              aria-label="Filter by status"
+              className="rg-select h-10 !py-2 sm:w-auto"
             >
-              <option value="all">All Statuses</option>
+              <option value="all">All statuses</option>
               <option value="reported">Reported</option>
-              <option value="notified_municipality">Municipality Notified</option>
-              <option value="inspection_scheduled">Inspection Scheduled</option>
-              <option value="in_repair">In Repair</option>
+              <option value="notified_municipality">Municipality notified</option>
+              <option value="inspection_scheduled">Inspection scheduled</option>
+              <option value="in_repair">In repair</option>
               <option value="resolved">Resolved</option>
             </select>
           </div>
         </div>
 
-        {/* Filter Summary & Active Filters */}
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-2 border-t border-slate-800/60">
+        <div className="flex items-center justify-between border-t border-slate-700/40 pt-2 font-mono text-[11px] text-slate-400">
           <span>
-            Showing <strong className="text-slate-200 font-semibold">{filteredIssues.length}</strong> of {issues.length} records
+            Showing <strong className="font-semibold text-slate-200">{filteredIssues.length}</strong> of {issues.length}{' '}
+            records
           </span>
           {(severityFilter !== 'all' || statusFilter !== 'all' || searchTerm) && (
             <button
+              type="button"
               onClick={() => {
                 setSeverityFilter('all');
                 setStatusFilter('all');
                 setSearchTerm('');
               }}
-              className="text-amber-400 hover:underline font-sans text-xs font-medium"
+              className="font-sans text-xs font-medium text-amber-400 hover:underline"
             >
               Reset filters
             </button>
@@ -162,20 +185,21 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
         </div>
       </div>
 
-      {/* Mobile Card List (< md) */}
-      <div className="md:hidden space-y-3">
+      {/* Mobile card list (< md) */}
+      <div className="space-y-3 md:hidden">
         {filteredIssues.length === 0 ? (
-          <div className="p-8 rounded-xl bg-slate-900 border border-slate-800 text-center space-y-2">
-            <AlertTriangle className="w-8 h-8 text-slate-500 mx-auto" />
-            <h4 className="text-sm font-semibold text-slate-200">No road issues found</h4>
-            <p className="text-xs text-slate-400">Try adjusting your search query or severity/status filter.</p>
-          </div>
+          <EmptyState
+            icon={AlertTriangle}
+            title="No road issues found"
+            description="Try adjusting your search query or severity and status filters."
+          />
         ) : (
           filteredIssues.map((issue) => (
-            <div
+            <button
               key={issue.id}
+              type="button"
               onClick={() => setActiveIssue(issue)}
-              className="p-4 rounded-xl bg-slate-900 border border-slate-800/90 hover:border-slate-700 hover:bg-slate-850 active:bg-slate-800 active:scale-[0.995] transition-all cursor-pointer space-y-3 shadow-sm group select-none"
+              className="rg-card rg-card-interactive block w-full space-y-3 p-4 text-left"
             >
               {/* Reference & Refined Metadata Row */}
               <div className="space-y-1">
@@ -188,20 +212,8 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded border capitalize ${
-                      issue.severity === 'critical'
-                        ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                        : issue.severity === 'high'
-                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                        : issue.severity === 'medium'
-                        ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
-                        : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                    }`}
-                  >
-                    {issue.severity}
-                  </span>
-                  <span className="text-slate-600">·</span>
+                  <SeverityBadge severity={issue.severity} />
+                  <span className="text-slate-600" aria-hidden="true">·</span>
                   <span className="text-xs text-slate-400">
                     {issue.assignedWorkerName ? issue.assignedWorkerName.split(' ')[0] : 'Unassigned'}
                   </span>
@@ -219,130 +231,142 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
                 <span className="truncate">{issue.location.street || issue.location.area}, {issue.location.city}</span>
               </p>
 
-              {/* Tertiary Info: SLA & Action */}
-              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2.5 border-t border-slate-800/80 font-mono">
-                <div className="flex items-center gap-1.5">
-                  <span>SLA Target: 24h</span>
-                  <span className="text-slate-600">·</span>
-                  <span className="capitalize text-slate-400">{issue.status.replace(/_/g, ' ')}</span>
-                </div>
-                <span className="text-amber-400 font-medium text-xs flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                  <span>Manage Incident</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+              {/* Tertiary info */}
+              <div className="flex items-center justify-between border-t border-slate-700/40 pt-2.5 font-mono text-[11px] text-slate-500">
+                <StatusBadge status={issue.status} />
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-400">
+                  <span>Manage incident</span>
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </span>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>
 
-      {/* Issues Table (Desktop View >= md) */}
-      <div className="hidden md:block bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-medium">
-              <tr>
-                <th className="py-3 px-4">Reference</th>
-                <th className="py-3 px-4">Roadway & Location</th>
-                <th className="py-3 px-4">Severity</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Assigned Crew</th>
-                <th className="py-3 px-4">Reported Date</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/80">
-              {filteredIssues.map((issue) => {
-                const severityBadge =
-                  issue.severity === 'critical'
-                    ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                    : issue.severity === 'high'
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-
-                return (
+      {/* Issues table (desktop >= md) */}
+      <div className="rg-panel hidden overflow-hidden rounded-xl md:block">
+        {filteredIssues.length === 0 ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="No road issues match the filters"
+            description="Adjust the search term, severity, or status filter to widen the registry view."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="rg-table">
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Roadway &amp; location</th>
+                  <th>Severity</th>
+                  <th>Status</th>
+                  <th>Assigned crew</th>
+                  <th>Reported</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredIssues.map((issue) => (
                   <tr
                     key={issue.id}
+                    tabIndex={0}
                     onClick={() => setActiveIssue(issue)}
-                    className="hover:bg-slate-800/50 cursor-pointer transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveIssue(issue);
+                      }
+                    }}
+                    aria-label={`Open ${issue.referenceNumber}: ${issue.title}`}
+                    className="cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-amber-400"
                   >
-                    <td className="py-3 px-4 font-mono font-semibold text-amber-400">
-                      {issue.referenceNumber}
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-200">
+                    <td className="font-mono font-semibold text-amber-400">{issue.referenceNumber}</td>
+                    <td className="font-medium text-slate-200">
                       <div>{issue.title}</div>
-                      <span className="text-[11px] text-slate-400 font-normal">
+                      <span className="text-[11px] font-normal text-slate-400">
                         {issue.location.street || issue.location.area}, {issue.location.city}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border capitalize ${severityBadge}`}>
-                        {issue.severity}
-                      </span>
+                    <td>
+                      <SeverityBadge severity={issue.severity} />
                     </td>
-                    <td className="py-3 px-4 capitalize text-slate-300">
-                      {issue.status.replace(/_/g, ' ')}
+                    <td>
+                      <StatusBadge status={issue.status} />
                     </td>
-                    <td className="py-3 px-4 text-slate-400">
+                    <td>
                       {issue.assignedWorkerName ? (
                         <span className="text-slate-200">{issue.assignedWorkerName}</span>
                       ) : (
-                        <span className="text-rose-400 font-medium text-xs">Unassigned</span>
+                        <span className="text-xs font-medium text-rose-400">Unassigned</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-mono text-slate-500 tabular-nums">
+                    <td className="font-mono tabular-nums text-slate-500">
                       {new Date(issue.createdAt).toLocaleDateString([], {
                         month: 'short',
                         day: 'numeric',
                       })}
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="text-right">
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveIssue(issue);
                         }}
-                        className="text-amber-400 hover:text-amber-300 font-medium text-xs inline-flex items-center gap-1"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300"
                       >
                         <span>Manage</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Slide-Over Incident Management Drawer */}
+      {/* Slide-over incident management drawer */}
       {activeIssue && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xl bg-slate-900 border-l border-slate-800 p-6 overflow-y-auto space-y-6 text-slate-100 shadow-2xl">
-            {/* Drawer Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm rg-animate-fade">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="issue-drawer-title"
+            className="w-full max-w-xl space-y-6 overflow-y-auto border-l border-slate-800 bg-slate-900 p-6 text-slate-100 shadow-2xl"
+          >
+            {/* Drawer header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
-                <span className="text-xs font-mono font-bold text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                <span className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-bold text-amber-400">
                   {activeIssue.referenceNumber}
                 </span>
-                <h3 className="text-base font-bold text-slate-100 mt-2">{activeIssue.title}</h3>
+                <h3 id="issue-drawer-title" className="mt-2 text-base font-bold text-slate-100">
+                  {activeIssue.title}
+                </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setActiveIssue(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                className="rg-icon-btn"
+                aria-label="Close incident details"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
 
             {/* Evidence & Location */}
             <div className="space-y-3">
               <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 max-h-52 flex items-center justify-center">
-                <img
+                <EvidenceImage
                   src={activeIssue.evidenceImageUrl}
-                  alt="Evidence"
-                  className="w-full h-full object-cover"
+                  alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
+                  caption={activeIssue.location.street || activeIssue.location.area}
+                  className="h-52 w-full"
+                  imgClassName="w-full h-full object-cover"
+                  allowFullView
                 />
               </div>
 
@@ -366,26 +390,32 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
                 Supervisor Controls
               </h4>
 
-              {/* Status Update */}
+              {/* Status update */}
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1 font-medium">Update Status</label>
+                <label htmlFor="issue-status-select" className="mb-1 block text-[11px] font-medium text-slate-400">
+                  Update status
+                </label>
                 <select
+                  id="issue-status-select"
                   value={activeIssue.status}
                   onChange={(e) => handleStatusChange(activeIssue.id, e.target.value as IssueStatus)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="rg-select"
                 >
                   <option value="reported">Reported</option>
-                  <option value="notified_municipality">Municipality Notified</option>
-                  <option value="inspection_scheduled">Inspection Scheduled</option>
-                  <option value="in_repair">In Repair</option>
-                  <option value="resolved">Resolved & Certified</option>
+                  <option value="notified_municipality">Municipality notified</option>
+                  <option value="inspection_scheduled">Inspection scheduled</option>
+                  <option value="in_repair">In repair</option>
+                  <option value="resolved">Resolved &amp; certified</option>
                 </select>
               </div>
 
-              {/* Worker Assignment */}
+              {/* Worker assignment */}
               <div>
-                <label className="text-[11px] text-slate-400 block mb-1 font-medium">Assign Field Crew</label>
+                <label htmlFor="issue-worker-select" className="mb-1 block text-[11px] font-medium text-slate-400">
+                  Assign field crew
+                </label>
                 <select
+                  id="issue-worker-select"
                   value={activeIssue.assignedWorkerId || ''}
                   onChange={(e) => {
                     const w = workers.find((item) => item.id === e.target.value);
@@ -393,9 +423,9 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
                       handleAssignWorker(activeIssue.id, w.id, w.name);
                     }
                   }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="rg-select"
                 >
-                  <option value="">-- Select Field Technician --</option>
+                  <option value="">Select field technician</option>
                   {workers.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -404,14 +434,15 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
                 </select>
               </div>
 
-              {/* Municipal Transmittal Action */}
-              <div className="pt-2 border-t border-slate-800">
+              {/* Municipal transmittal */}
+              <div className="border-t border-slate-800 pt-2">
                 <button
+                  type="button"
                   onClick={() => setEmailModalIssue(activeIssue)}
-                  className="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700"
+                  className="rg-btn rg-btn-secondary w-full"
                 >
-                  <Mail className="w-4 h-4 text-amber-400" />
-                  <span>Transmit Official Municipal Email</span>
+                  <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                  <span>Transmit official municipal email</span>
                 </button>
               </div>
             </div>

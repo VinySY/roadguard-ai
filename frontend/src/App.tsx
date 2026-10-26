@@ -21,15 +21,16 @@ import { ReportModal } from './components/reporting/ReportModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { LandingPage } from './components/landing/LandingPage';
+import { PageHeader } from './components/common/PageHeader';
+import { MapPin } from 'lucide-react';
 
 export default function App() {
   const [activeRole, setActiveRole] = useState<UserRole>(storage.getActiveRole());
   const [currentUser, setCurrentUser] = useState<User | null>(storage.getCurrentUser());
-  const [currentNav, setCurrentNav] = useState<string>('home');
+  const [currentNav, setCurrentNav] = useState<string>('landing');
   const [issues, setIssues] = useState<RoadIssue[]>(storage.getIssues());
   const [notifications, setNotifications] = useState<AppNotification[]>(storage.getNotifications(activeRole));
   const [userLocation, setUserLocation] = useState<LocationCoordinates | null>(null);
-  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>(storage.getTheme());
   const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
 
   // Modals
@@ -40,10 +41,11 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
-  // Initialize theme on mount
+  // RoadGuard presents a single Midnight + Amber visual system; keep the
+  // document in dark mode regardless of any previously stored preference.
   useEffect(() => {
-    const initialized = storage.initTheme();
-    setCurrentTheme(initialized);
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
   }, []);
 
   // Poll server health on mount & periodic interval
@@ -65,12 +67,6 @@ export default function App() {
   useEffect(() => {
     setNotifications(storage.getNotifications(activeRole));
   }, [activeRole]);
-
-  const handleToggleTheme = () => {
-    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    setCurrentTheme(nextTheme);
-    storage.setTheme(nextTheme);
-  };
 
   // Handle role switch
   const handleRoleChange = (newRole: UserRole) => {
@@ -122,8 +118,30 @@ export default function App() {
     }
   };
 
+  const handleStartDetection = () => {
+    handleRoleChange('citizen');
+    setCurrentNav('detection');
+  };
+
+  const handleExploreMap = () => {
+    handleRoleChange('citizen');
+    setCurrentNav('map');
+  };
+
+  const handleGoToLanding = () => {
+    setCurrentNav('landing');
+  };
+
+  const handleSignOut = () => {
+    storage.setCurrentUser(null);
+    setCurrentUser(null);
+    setSelectedIssueId(null);
+    setIsSettingsModalOpen(false);
+    setCurrentNav('landing');
+  };
+
   return (
-    <div className="h-full w-full overflow-hidden bg-slate-50 dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className="rg-app-bg flex h-full w-full flex-col overflow-hidden font-sans text-slate-100">
       {/* 3-Zone Header Contract */}
       <Header
         currentUser={currentUser}
@@ -136,12 +154,12 @@ export default function App() {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         activeNavTab={currentNav}
         onSelectNavTab={(tab) => setCurrentNav(tab)}
-        currentTheme={currentTheme}
-        onToggleTheme={handleToggleTheme}
+        onGoToLanding={handleGoToLanding}
+        onSignOut={handleSignOut}
         serverHealth={serverHealth}
       />
 
-      <div className="flex flex-1 w-full overflow-hidden">
+      <div className="relative z-[1] flex w-full flex-1 overflow-hidden">
         {/* Role-Specific Sidebar */}
         {currentNav !== 'landing' && (
           <Sidebar
@@ -152,11 +170,13 @@ export default function App() {
             currentUser={currentUser}
             onOpenAuth={() => setIsAuthModalOpen(true)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
+            onGoToLanding={handleGoToLanding}
           />
         )}
 
-        {/* Main Content Viewport – independently scrollable */}
-        <main className="flex-1 h-full overflow-y-auto min-w-0 p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">
+        {/* Main Content Viewport — independently scrollable */}
+        <main className="rg-main-scroll flex-1 h-full overflow-y-auto overflow-x-hidden min-w-0 p-4 pb-24 sm:p-6 lg:p-8 lg:pb-8">
+          <div className="mx-auto w-full max-w-[1600px]">
           {/* CITIZEN VIEWS */}
           {activeRole === 'citizen' && (
             <>
@@ -197,13 +217,18 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 w-full">
-                  <div className="pb-3 border-b border-slate-800">
-                    <h2 className="text-xl font-bold text-slate-100">Nearby Road Hazards Map</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Explore reported asphalt distress, potholes, and verified repairs in your area.
-                    </p>
-                  </div>
+                <div className="w-full space-y-4">
+                  <PageHeader
+                    eyebrow={
+                      <>
+                        <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                        Citizen road map
+                      </>
+                    }
+                    icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
+                    title="Nearby road hazards"
+                    description="Explore reported asphalt distress, potholes, and verified repairs around you."
+                  />
                   <LeafletMap
                     issues={issues}
                     role="citizen"
@@ -243,13 +268,18 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 w-full">
-                  <div className="pb-3 border-b border-slate-800">
-                    <h2 className="text-xl font-bold text-slate-100">Assigned Inspection Route</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Field navigation map showing your assigned road defect sites.
-                    </p>
-                  </div>
+                <div className="w-full space-y-4">
+                  <PageHeader
+                    eyebrow={
+                      <>
+                        <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                        Field navigation
+                      </>
+                    }
+                    icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
+                    title="Assigned inspection route"
+                    description="Field navigation map showing the road defect sites assigned to your crew."
+                  />
                   <LeafletMap
                     issues={issues}
                     role="worker"
@@ -309,13 +339,18 @@ export default function App() {
               )}
 
               {currentNav === 'map' && (
-                <div className="space-y-4 w-full">
-                  <div className="pb-3 border-b border-slate-800">
-                    <h2 className="text-xl font-bold text-slate-100">Municipal Road Situation Console</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Full citywide geospatial defect monitoring, severity filters, and crew assignment status.
-                    </p>
-                  </div>
+                <div className="w-full space-y-4">
+                  <PageHeader
+                    eyebrow={
+                      <>
+                        <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                        Municipal geospatial console
+                      </>
+                    }
+                    icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
+                    title="Citywide road situation"
+                    description="Geospatial defect monitoring with severity filters, status filters, and crew assignment status."
+                  />
                   <LeafletMap
                     issues={issues}
                     role="inspector"
@@ -352,19 +387,24 @@ export default function App() {
             <LandingPage
               onEnterRole={(role) => handleRoleChange(role)}
               onOpenReportModal={() => handleOpenReportModal()}
+              onStartDetection={handleStartDetection}
+              onExploreMap={handleExploreMap}
             />
           )}
+          </div>
         </main>
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <MobileNav
-        activeRole={activeRole}
-        currentNav={currentNav}
-        onSelectNav={(nav) => setCurrentNav(nav)}
-        onOpenReportModal={() => handleOpenReportModal()}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
-      />
+      {currentNav !== 'landing' && (
+        <MobileNav
+          activeRole={activeRole}
+          currentNav={currentNav}
+          onSelectNav={(nav) => setCurrentNav(nav)}
+          onOpenReportModal={() => handleOpenReportModal()}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+        />
+      )}
 
       {/* Citizen Reporting Modal */}
       <ReportModal

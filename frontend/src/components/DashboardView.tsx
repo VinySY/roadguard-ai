@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { DetectionResult, NavigationTab, ServerHealth } from '../types/detection';
 import { fetchInspections, InspectionRecord } from '../services/api';
+import { resolveInspectionUniqueCount } from '../services/detectionCounts';
 
 interface DashboardViewProps {
   latestResult: DetectionResult | null;
@@ -67,7 +68,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Road Infrastructure Monitoring
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            Real-time computer vision telemetry and pavement damage intelligence powered by YOLOv11 segmentation and persistent MySQL auditing.
+            Real-time computer vision telemetry and pavement damage intelligence powered by RF-DETR segmentation and persistent MySQL auditing.
           </p>
         </div>
 
@@ -127,7 +128,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                     <span className="text-[10px] font-mono text-slate-500 uppercase">Model</span>
                     <div className="text-xs font-bold text-slate-200 font-mono mt-1.5">
-                      YOLOv11-seg
+                      RF-DETR-seg
                     </div>
                   </div>
                 </div>
@@ -199,7 +200,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800/80">
                 <span className="text-slate-400">Roboflow Model Link:</span>
                 <span className={serverHealth?.modelReachable ? 'text-emerald-400' : 'text-amber-400'}>
-                  {serverHealth?.modelReachable ? 'YOLOv11 Reached' : 'API Key Configured'}
+                  {serverHealth?.modelReachable ? 'RF-DETR Reached' : 'API Key Configured'}
                 </span>
               </div>
 
@@ -293,7 +294,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       {insp.image_filename}
                     </h4>
                     <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
-                      {insp.image_width} &times; {insp.image_height}px · {insp.detection_count} defects
+                      {insp.image_width} &times; {insp.image_height}px · {resolveInspectionUniqueCount(insp)} unique defects
                     </span>
                   </div>
 

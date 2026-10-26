@@ -7,8 +7,39 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { getPool } from '../db/pool.js';
 import { saveInspection, saveDetections } from '../db/persistence.js';
-import { deduplicateDetectionsAcrossFrames, calculateIoU } from '../utils/iou.js';
 import { getProjectRoot } from '../utils/paths.js';
+import {
+  buildServerlessInferenceUrl,
+  getRoboflowConfig,
+  sanitizeApiKey,
+} from '../config/roboflow.js';
+import {
+  DEFAULT_BOX_IOU_THRESHOLD,
+  DEFAULT_CONFIDENCE_PERCENT,
+  DEFAULT_CONTAINMENT_THRESHOLD,
+  DEFAULT_MASK_IOU_THRESHOLD,
+  DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT,
+  DEFAULT_OVERLAP_PERCENT,
+  EnrichedPrediction,
+  InvalidRoboflowResponseError,
+  calculateDamagePercentage,
+  calculateRiskLevel,
+  deduplicatePredictions,
+  enrichPredictions,
+  filterByConfidence,
+  maxConfidenceOf,
+  parseBooleanParam,
+  parseIntegerParam,
+  parsePercentParam,
+  parseUnitIntervalParam,
+  validateRoboflowResponse,
+} from '../utils/detectionPostprocess.js';
+import {
+  summarizeTracks,
+  trackPotholes,
+  TrackFrame,
+  TrackingResult,
+} from '../utils/potholeTracker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,37 +75,157 @@ const router = Router();
 // Configuration
 // ==========================================
 
-const ROBOFLOW_PROJECT = process.env.ROBOFLOW_PROJECT || 'pothole-detection-itsgr';
-const ROBOFLOW_VERSION = process.env.ROBOFLOW_VERSION || '1';
-
-function getSanitizedApiKey(): string {
-  const rawKey = process.env.ROBOFLOW_API_KEY || '';
-  return rawKey.replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
-}
+const roboflowConfig = getRoboflowConfig();
 
 /** Maximum video file size (50 MB) */
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
-/** Max frames to extract (caps processing time) */
+/** Max frames to extract (caps processing time and Roboflow calls) */
 const MAX_FRAMES = 30;
 
 /** Default frames per second to extract */
 const DEFAULT_FPS = 1;
 
-/** Default Roboflow confidence threshold percentage */
-const DEFAULT_CONFIDENCE = 20;
+/** Extraction fps bounds */
+const MIN_EXTRACTION_FPS = 0.1;
+const MAX_EXTRACTION_FPS = 5;
 
-function parseConfidenceThreshold(value: unknown): number | null {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    return null;
+/**
+ * Tracker strong-overlap threshold. Deliberately lower than the old 0.70:
+ * dashcam footage moves between samples, so exact IoU is rare. Motion
+ * compensation and a centre-distance gate provide the rest of the association
+ * signal.
+ */
+const DEFAULT_TRACK_MATCH_IOU = 0.2;
+
+/** Allow a track to survive this many consecutive sampled frames without a hit. */
+const DEFAULT_MAX_MISSED_FRAMES = 3;
+
+interface VideoDetectionOptions {
+  confidence: number;
+  overlap: number;
+  extractionFps: number;
+  /** True when the requested fps was above MAX_EXTRACTION_FPS and clamped. */
+  fpsCapped: boolean;
+  dedupeEnabled: boolean;
+  maskIou: number;
+  boxIou: number;
+  containment: number;
+  minAreaRatio: number;
+  matchIou: number;
+  maxMissedFrames: number;
+  minHits: number | null;
+  debug: boolean;
+}
+
+function parseExtractionFps(value: unknown): { fps: number; capped: boolean } | null {
+  if (value === undefined || value === null || value === '') {
+    return { fps: DEFAULT_FPS, capped: false };
+  }
+  if (Array.isArray(value)) return null;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return {
+    fps: Math.max(MIN_EXTRACTION_FPS, Math.min(parsed, MAX_EXTRACTION_FPS)),
+    capped: parsed > MAX_EXTRACTION_FPS,
+  };
+}
+
+/**
+ * Parses and validates every query option BEFORE multer writes the upload to
+ * disk. Invalid values return 400 instead of silently producing NaN / NaI
+ * counts downstream.
+ */
+function parseVideoOptions(req: Request): { options?: VideoDetectionOptions; error?: string } {
+  const confidence = parsePercentParam(req.query.confidence, DEFAULT_CONFIDENCE_PERCENT);
+  if (confidence === null) {
+    return { error: 'Invalid confidence value. Provide a number between 0 and 100.' };
   }
 
-  const confidence = Number(value);
-  if (!Number.isSafeInteger(confidence) || confidence < 0 || confidence > 100) {
-    return null;
+  const overlap = parsePercentParam(req.query.overlap, DEFAULT_OVERLAP_PERCENT);
+  if (overlap === null) {
+    return { error: 'Invalid overlap value. Provide a number between 0 and 100.' };
   }
 
-  return confidence;
+  const extractionFps = parseExtractionFps(req.query.fps);
+  if (extractionFps === null) {
+    return { error: `Invalid fps value. Provide a positive number (server maximum ${MAX_EXTRACTION_FPS}).` };
+  }
+
+  const maskIou = parseUnitIntervalParam(
+    req.query.maskIou ?? req.query.dedupeIou,
+    DEFAULT_MASK_IOU_THRESHOLD,
+  );
+  if (maskIou === null) {
+    return { error: 'Invalid maskIou value. Provide a number between 0 and 1.' };
+  }
+
+  const boxIou = parseUnitIntervalParam(
+    req.query.boxIou ?? req.query.dedupeBoxIou,
+    DEFAULT_BOX_IOU_THRESHOLD,
+  );
+  if (boxIou === null) {
+    return { error: 'Invalid boxIou value. Provide a number between 0 and 1.' };
+  }
+
+  const containment = parseUnitIntervalParam(
+    req.query.containment,
+    DEFAULT_CONTAINMENT_THRESHOLD,
+  );
+  if (containment === null) {
+    return { error: 'Invalid containment value. Provide a number between 0 and 1.' };
+  }
+
+  const minAreaRatio = parseUnitIntervalParam(
+    req.query.minAreaRatio,
+    DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT,
+  );
+  if (minAreaRatio === null) {
+    return { error: 'Invalid minAreaRatio value. Provide a number between 0 and 1.' };
+  }
+
+  // `iou` is kept for backwards compatibility with older clients and is now
+  // the tracker's strong-overlap threshold. `matchIou` is the explicit alias.
+  const matchIou = parseUnitIntervalParam(
+    req.query.matchIou ?? req.query.iou,
+    DEFAULT_TRACK_MATCH_IOU,
+  );
+  if (matchIou === null) {
+    return { error: 'Invalid iou value. Provide a number between 0 and 1.' };
+  }
+
+  const maxMissedFrames = parseIntegerParam(
+    req.query.maxMissed ?? req.query.maxMissedFrames,
+    DEFAULT_MAX_MISSED_FRAMES,
+    0,
+    30,
+  );
+  if (maxMissedFrames === null) {
+    return { error: 'Invalid maxMissed value. Provide an integer between 0 and 30.' };
+  }
+
+  const minHits = parseIntegerParam(req.query.minHits, null, 1, MAX_FRAMES);
+  if (minHits === null && req.query.minHits !== undefined) {
+    return { error: `Invalid minHits value. Provide an integer between 1 and ${MAX_FRAMES}.` };
+  }
+
+  return {
+    options: {
+      confidence,
+      overlap,
+      extractionFps: extractionFps.fps,
+      fpsCapped: extractionFps.capped,
+      dedupeEnabled: parseBooleanParam(req.query.dedupe ?? req.query.deduplicate, true),
+      maskIou,
+      boxIou,
+      containment,
+      minAreaRatio,
+      matchIou,
+      maxMissedFrames,
+      minHits,
+      debug: parseBooleanParam(req.query.debug, false),
+    },
+  };
 }
 
 // Video upload via Multer — disk storage for FFmpeg access
@@ -214,83 +365,135 @@ function extractFrames(
 // Helper: Detect potholes in a single frame
 // ==========================================
 
+interface ResolvedModelInfo {
+  id: string;
+  taskType: string;
+  packageId?: string;
+  backend?: string;
+  quantization?: string;
+}
+
 interface FrameDetectionResult {
   frameIndex: number;
   timestamp: number;  // seconds into the video
-  predictions: any[];
+  image: { width: number; height: number };
+  model: ResolvedModelInfo;
+  predictions: EnrichedPrediction[];
   analytics: {
+    /** Final per-frame unique count after duplicate suppression. */
     totalDetected: number;
+    uniquePotholeCount: number;
+    /** Confidence-filtered model predictions before duplicate suppression. */
+    rawDetectionCount: number;
+    /** Every prediction returned by the model, including below-threshold ones. */
+    rawPredictionCount: number;
+    duplicatePredictionsRemoved: number;
     maxConfidence: number;
     damagePercentage: number;
-    overallRiskLevel: string;
+    overallRiskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   };
+  warnings?: string[];
 }
 
 async function detectFrame(
   framePath: string,
   frameIndex: number,
-  fps: number,
+  extractionFps: number,
   apiKey: string,
-  confidence: number,
-  overlap: number
+  fallbackImage: { width: number; height: number },
+  options: VideoDetectionOptions,
 ): Promise<FrameDetectionResult> {
   const imageBuffer = fs.readFileSync(framePath);
   const base64Image = imageBuffer.toString('base64');
 
-  const roboflowUrl = `https://outline.roboflow.com/${encodeURIComponent(ROBOFLOW_PROJECT)}/${encodeURIComponent(ROBOFLOW_VERSION)}?api_key=${encodeURIComponent(apiKey)}&confidence=${confidence}&overlap=${overlap}`;
-
-  const rfResponse = await fetch(roboflowUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: base64Image,
+  const roboflowUrl = buildServerlessInferenceUrl(roboflowConfig.modelId, {
+    confidencePercent: options.confidence,
+    overlapPercent: options.overlap,
   });
+
+  let rfResponse;
+  try {
+    rfResponse = await fetch(roboflowUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: base64Image,
+      signal: AbortSignal.timeout(90_000),
+    });
+  } catch (fetchError: any) {
+    if (fetchError?.name === 'TimeoutError' || fetchError?.name === 'AbortError') {
+      throw new Error('Roboflow request timed out after 90s.');
+    }
+    throw new Error(`Could not reach Roboflow: ${fetchError?.message || fetchError}`);
+  }
 
   if (!rfResponse.ok) {
     const errorText = await rfResponse.text();
     throw new Error(`Roboflow API error (${rfResponse.status}): ${errorText}`);
   }
 
-  const result = await rfResponse.json();
-  const confidenceThreshold = confidence / 100;
-  const predictions = (result.predictions || []).filter(
-    (prediction: any) => prediction.confidence >= confidenceThreshold
-  );
-  const imageMeta = result.image || { width: 640, height: 640 };
-  const totalImageArea = (imageMeta.width || 640) * (imageMeta.height || 640);
+  let result: unknown;
+  try {
+    result = await rfResponse.json();
+  } catch {
+    throw new InvalidRoboflowResponseError('The model returned a non-JSON response.');
+  }
 
-  let totalPotholeArea = 0;
-  let maxConfidenceVal = 0;
+  const validated = validateRoboflowResponse(result, fallbackImage);
+  const resolvedModel = (result as any)?.resolved_model;
+  const model: ResolvedModelInfo = {
+    id: resolvedModel?.model_id || roboflowConfig.modelId,
+    taskType: roboflowConfig.taskType,
+    ...(resolvedModel?.model_package_id && { packageId: resolvedModel.model_package_id }),
+    ...(resolvedModel?.backend && { backend: resolvedModel.backend }),
+    ...(resolvedModel?.quantization && { quantization: resolvedModel.quantization }),
+  };
+  const candidates = filterByConfidence(validated.predictions, options.confidence / 100);
 
-  const enrichedPredictions = predictions.map((pred: any, idx: number) => {
-    const area = (pred.width || 0) * (pred.height || 0);
-    totalPotholeArea += area;
-    if (pred.confidence > maxConfidenceVal) maxConfidenceVal = pred.confidence;
+  const deduplication = options.dedupeEnabled
+    ? deduplicatePredictions(candidates, {
+        maskIouThreshold: options.maskIou,
+        boxIouThreshold: options.boxIou,
+        containmentThreshold: options.containment,
+        minAreaRatioForContainment: options.minAreaRatio,
+      })
+    : {
+        predictions: candidates,
+        candidateCount: candidates.length,
+        duplicateCount: 0,
+        suppressed: [],
+      };
 
-    const areaRatio = (area / totalImageArea) * 100;
-    let severity: string = 'minor';
-    if (areaRatio > 12 || pred.confidence > 0.85) severity = 'critical';
-    else if (areaRatio > 6 || pred.confidence > 0.70) severity = 'high';
-    else if (areaRatio > 2 || pred.confidence > 0.50) severity = 'moderate';
+  const enrichedPredictions = enrichPredictions(deduplication.predictions, validated.image);
+  const maxConfidence = maxConfidenceOf(deduplication.predictions);
+  const damagePercentage = calculateDamagePercentage(deduplication.predictions, validated.image);
 
-    return { ...pred, id: `pothole-${idx + 1}`, area, areaRatio: parseFloat(areaRatio.toFixed(2)), severity };
-  });
-
-  const damagePercentage = parseFloat(((totalPotholeArea / totalImageArea) * 100).toFixed(2));
-  let overallRiskLevel = 'LOW';
-  if (enrichedPredictions.length >= 4 || damagePercentage > 15) overallRiskLevel = 'CRITICAL';
-  else if (enrichedPredictions.length >= 2 || damagePercentage > 7) overallRiskLevel = 'HIGH';
-  else if (enrichedPredictions.length === 1 || damagePercentage > 2) overallRiskLevel = 'MEDIUM';
+  const warnings = [...validated.warnings];
+  if (deduplication.duplicateCount > 0) {
+    warnings.push(
+      `${deduplication.duplicateCount} duplicate/overlapping prediction(s) merged within this frame.`,
+    );
+  }
 
   return {
     frameIndex,
-    timestamp: parseFloat((frameIndex / fps).toFixed(2)),
+    timestamp: parseFloat((frameIndex / extractionFps).toFixed(2)),
+    image: validated.image,
+    model,
     predictions: enrichedPredictions,
     analytics: {
       totalDetected: enrichedPredictions.length,
-      maxConfidence: parseFloat(maxConfidenceVal.toFixed(3)),
+      uniquePotholeCount: enrichedPredictions.length,
+      rawDetectionCount: candidates.length,
+      rawPredictionCount: validated.rawPredictionCount,
+      duplicatePredictionsRemoved: deduplication.duplicateCount,
+      maxConfidence: parseFloat(maxConfidence.toFixed(3)),
       damagePercentage,
-      overallRiskLevel,
+      overallRiskLevel: calculateRiskLevel(enrichedPredictions.length, damagePercentage),
     },
+    ...(warnings.length > 0 && { warnings }),
   };
 }
 
@@ -315,30 +518,32 @@ function cleanupFiles(paths: string[]): void {
   }
 }
 
+const RISK_ORDER = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+type RiskLevel = (typeof RISK_ORDER)[number];
+
+function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
+  return RISK_ORDER.indexOf(a) >= RISK_ORDER.indexOf(b) ? a : b;
+}
+
 // ==========================================
 // POST /api/detect/video
 // ==========================================
 
 router.post('/api/detect/video', (req: Request, res: Response, next: NextFunction) => {
-  const confidence = req.query.confidence === undefined
-    ? DEFAULT_CONFIDENCE
-    : parseConfidenceThreshold(req.query.confidence);
-
-  if (confidence === null) {
-    return res.status(400).json({
-      error: 'Invalid confidence value. Provide an integer between 0 and 100.',
-    });
+  const parsed = parseVideoOptions(req);
+  if (!parsed.options) {
+    return res.status(400).json({ error: parsed.error });
   }
 
-  res.locals.videoConfidenceThreshold = confidence;
+  res.locals.videoOptions = parsed.options;
   next();
 }, videoUpload.single('video'), async (req: Request, res: Response) => {
   const filesToCleanup: string[] = [];
 
   try {
-    const confidence = res.locals.videoConfidenceThreshold as number;
+    const options = res.locals.videoOptions as VideoDetectionOptions;
 
-    const apiKey = getSanitizedApiKey();
+    const apiKey = sanitizeApiKey();
     if (!apiKey) {
       return res.status(500).json({
         error: 'Roboflow API key is not configured. Set ROBOFLOW_API_KEY in .env.',
@@ -352,7 +557,10 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     const videoPath = req.file.path;
     filesToCleanup.push(videoPath);
 
-    console.log(`[RoadGuard Video] Processing: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(1)} MB)`);
+    console.log(
+      `[RoadGuard Video] Processing: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(1)} MB) ` +
+      `confidence=${options.confidence}% overlap=${options.overlap}% model=${roboflowConfig.modelId}`,
+    );
 
     // 1. Get video metadata
     let videoMeta: VideoMeta;
@@ -365,23 +573,25 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    console.log(`[RoadGuard Video] Duration: ${videoMeta.duration.toFixed(1)}s, ${videoMeta.width}x${videoMeta.height}, ${videoMeta.fps}fps, codec: ${videoMeta.codec}`);
+    console.log(
+      `[RoadGuard Video] Duration: ${videoMeta.duration.toFixed(1)}s, ` +
+      `${videoMeta.width}x${videoMeta.height}, ${videoMeta.fps}fps, codec: ${videoMeta.codec}`,
+    );
 
     // 2. Calculate extraction parameters
-    const requestedFps = req.query.fps ? parseFloat(req.query.fps as string) : DEFAULT_FPS;
-    const extractionFps = Math.max(0.1, Math.min(requestedFps, 5)); // Cap between 0.1 and 5 fps
-    const estimatedFrames = Math.ceil(videoMeta.duration * extractionFps);
+    const estimatedFrames = Math.max(1, Math.ceil(videoMeta.duration * options.extractionFps));
     const maxFrames = Math.min(estimatedFrames, MAX_FRAMES);
 
-    const overlap = req.query.overlap ? parseInt(req.query.overlap as string, 10) : 30;
-
-    console.log(`[RoadGuard Video] Extracting up to ${maxFrames} frames at ${extractionFps} fps`);
+    console.log(
+      `[RoadGuard Video] Extracting up to ${maxFrames} frames at ${options.extractionFps} fps ` +
+      `(estimated ${estimatedFrames} frames)`,
+    );
 
     // 3. Extract frames
     const sessionId = `vid_${Date.now()}`;
     let extraction: FrameExtractionResult;
     try {
-      extraction = await extractFrames(videoPath, sessionId, extractionFps, maxFrames);
+      extraction = await extractFrames(videoPath, sessionId, options.extractionFps, maxFrames);
     } catch (extractErr: any) {
       return res.status(500).json({
         error: 'Frame extraction failed.',
@@ -397,19 +607,23 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
 
     console.log(`[RoadGuard Video] Extracted ${frameCount} frames. Running detection...`);
 
-    // 4. Run detection on each frame (sequentially to respect Roboflow rate limits)
+    // 4. Run detection on each frame sequentially to respect Roboflow limits
     const frameResults: FrameDetectionResult[] = [];
     const errors: { frameIndex: number; error: string }[] = [];
+    const fallbackImage = {
+      width: videoMeta.width || 640,
+      height: videoMeta.height || 640,
+    };
 
     for (let i = 0; i < extraction.framePaths.length; i++) {
       try {
         const result = await detectFrame(
           extraction.framePaths[i],
           i,
-          extractionFps,
+          options.extractionFps,
           apiKey,
-          confidence,
-          overlap
+          fallbackImage,
+          options,
         );
         frameResults.push(result);
       } catch (frameErr: any) {
@@ -420,73 +634,147 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
 
     console.log(`[RoadGuard Video] Detection complete: ${frameResults.length}/${frameCount} frames processed`);
 
-    // 5. Aggregate results across all frames
-    const allPredictions = frameResults.flatMap(f => f.predictions);
-    const framesWithDetections = frameResults.filter(f => f.predictions.length > 0);
-    const totalDetections = allPredictions.length;
-
-    // 6. Deduplicate detections across frames using IoU
-    // This prevents counting the same pothole appearing in multiple frames as separate potholes
-    const iouThreshold = req.query.iou ? parseFloat(req.query.iou as string) : 0.70;
-    const deduplicationResult = deduplicateDetectionsAcrossFrames(frameResults, iouThreshold);
-    const uniquePotholeCount = deduplicationResult.uniquePotholeCount;
-
-    console.log(`[RoadGuard Video] Deduplication: ${totalDetections} raw detections → ${uniquePotholeCount} unique potholes (IoU threshold: ${iouThreshold})`);
-
-    // Calculate overall risk from frame-level analytics
-    let worstRisk = 'LOW';
-    const riskOrder = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-    for (const fr of frameResults) {
-      if (riskOrder.indexOf(fr.analytics.overallRiskLevel) > riskOrder.indexOf(worstRisk)) {
-        worstRisk = fr.analytics.overallRiskLevel;
-      }
+    // Every frame failing is a service failure, not an "empty road".
+    if (frameResults.length === 0) {
+      return res.status(502).json({
+        error: 'Video detection failed for every extracted frame.',
+        details: 'No frame could be analysed by the model. Check Roboflow availability and API credentials.',
+        errors,
+      });
     }
 
-    const avgDamage = frameResults.length > 0
-      ? parseFloat((frameResults.reduce((sum, f) => sum + f.analytics.damagePercentage, 0) / frameResults.length).toFixed(2))
+    // 5. Track detections across frames. Each frame's predictions have already
+    // been deduplicated, so the tracker sees at most one detection per pothole.
+    const trackFrames: TrackFrame[] = frameResults.map((frame) => ({
+      frameIndex: frame.frameIndex,
+      timestamp: frame.timestamp,
+      predictions: frame.predictions,
+      image: frame.image,
+    }));
+
+    const tracking: TrackingResult = trackPotholes(trackFrames, {
+      matchIouThreshold: options.matchIou,
+      maxMissedFrames: options.maxMissedFrames,
+      ...(options.minHits !== null ? { minHits: options.minHits } : {}),
+      failedFrameCount: errors.length,
+    });
+
+    const uniquePotholeCount = tracking.uniquePotholeCount;
+
+    // 6. Aggregate raw and unique totals separately. `totalDetections` remains
+    // the raw frame-level total for backwards compatibility; the final count is
+    // `uniquePotholeCount`.
+    const rawDetectionCount = frameResults.reduce((sum, frame) => sum + frame.analytics.rawDetectionCount, 0);
+    const rawPredictionCount = frameResults.reduce((sum, frame) => sum + frame.analytics.rawPredictionCount, 0);
+    // Frame-level detections AFTER same-frame duplicate suppression. This is
+    // still not the unique answer: the same pothole can appear in several
+    // frames, which is what the tracker resolves.
+    const frameDetectionCount = frameResults.reduce((sum, frame) => sum + frame.predictions.length, 0);
+    const candidateDetectionCount = rawDetectionCount;
+    const duplicatePredictionsRemoved = frameResults.reduce(
+      (sum, frame) => sum + frame.analytics.duplicatePredictionsRemoved,
+      0,
+    );
+    const framesWithDetections = frameResults.filter((frame) => frame.predictions.length > 0).length;
+    // The API echoes the executed model per frame; report the model from the
+    // first successful frame so configuration drift is visible.
+    const model = frameResults[0]?.model ?? {
+      id: roboflowConfig.modelId,
+      taskType: roboflowConfig.taskType,
+    };
+
+    console.log(
+      `[RoadGuard Video] Counting: ${rawPredictionCount} model prediction(s) → ` +
+      `${rawDetectionCount} above threshold → ${frameDetectionCount} per-frame unique → ` +
+      `${uniquePotholeCount} unique pothole(s) across ${frameCount} sampled frame(s) ` +
+      `(${tracking.tentativePotholeCount} tentative track(s))`,
+    );
+
+    const averageDamage = frameResults.length > 0
+      ? parseFloat(
+          (frameResults.reduce((sum, frame) => sum + frame.analytics.damagePercentage, 0) / frameResults.length)
+            .toFixed(2),
+        )
       : 0;
 
-    const maxConfAll = frameResults.length > 0
-      ? Math.max(...frameResults.map(f => f.analytics.maxConfidence))
+    const maxConfidence = tracking.representativeDetections.length > 0
+      ? Math.max(...tracking.representativeDetections.map((prediction) => prediction.confidence))
       : 0;
 
-    // 7. Persist to database (non-blocking, same pattern as image detection)
+    // Corridor risk is based on the confirmed unique count, not inflated raw
+    // frame totals. The worst individual frame risk is still reported.
+    const overallRiskLevel = calculateRiskLevel(uniquePotholeCount, averageDamage);
+    const worstFrameRiskLevel = frameResults.reduce<RiskLevel>(
+      (worst, frame) => maxRisk(worst, frame.analytics.overallRiskLevel),
+      'LOW',
+    );
+
+    // 7. Honest reliability reporting: short/sparse videos cannot support an
+    // exact unique count, so surface the limitation instead of inventing one.
+    const limitations = [...tracking.limitations];
+    if (videoMeta.duration < 2) {
+      limitations.push('The video is shorter than 2 seconds; there is very little motion between frames to track.');
+    }
+    if (frameCount < 3) {
+      limitations.push(`Only ${frameCount} frame(s) were sampled; cross-frame identity cannot be verified reliably.`);
+    }
+    if (estimatedFrames > MAX_FRAMES) {
+      limitations.push(
+        `Only the first ${MAX_FRAMES} of an estimated ${estimatedFrames} frames were analysed; potholes later in the video are not counted.`,
+      );
+    }
+    const warnings: string[] = [];
+    if (errors.length > 0) {
+      warnings.push(`${errors.length} of ${frameCount} frame(s) failed detection and were skipped.`);
+    }
+    if (options.fpsCapped) {
+      warnings.push(
+        `Requested extraction fps was capped at ${MAX_EXTRACTION_FPS}. Increase MAX_EXTRACTION_FPS if fast footage needs denser sampling.`,
+      );
+    }
+
+    // 8. Persist to database (non-blocking, same pattern as image detection)
     let persistenceWarning: string | undefined;
     let inspectionId: number | undefined;
 
     try {
       const pool = getPool();
       if (pool) {
-        // Create a single inspection record for the video
         inspectionId = await saveInspection({
           image_filename: req.file.originalname,
-          image_path: null,  // No persisted video (too large)
-          image_width: videoMeta.width,
-          image_height: videoMeta.height,
-          detection_count: totalDetections,
-          unique_pothole_count: uniquePotholeCount,  // Store the deduplicated count
-          overall_risk: worstRisk,
-          damage_percentage: avgDamage,
-          confidence_threshold: confidence,
+          image_path: null,  // Source video is not persisted (size/privacy)
+          image_width: videoMeta.width || fallbackImage.width,
+          image_height: videoMeta.height || fallbackImage.height,
+          // Keep raw frame total in detection_count and the final answer in
+          // unique_pothole_count so history/analytics can show both.
+          detection_count: rawDetectionCount,
+          unique_pothole_count: uniquePotholeCount,
+          overall_risk: overallRiskLevel,
+          damage_percentage: averageDamage,
+          confidence_threshold: options.confidence,
         });
 
-        // Save all detections from all frames
-        if (allPredictions.length > 0) {
-          const detectionRecords = allPredictions.map((pred: any) => ({
+        // Persist one representative detection per confirmed track rather than
+        // every duplicate frame-level prediction.
+        if (tracking.representativeDetections.length > 0) {
+          const detectionRecords = tracking.representativeDetections.map((prediction) => ({
             inspection_id: inspectionId!,
-            class_name: pred.class || 'pothole',
-            confidence: pred.confidence || 0,
-            severity: pred.severity || 'minor',
-            x: pred.x || 0,
-            y: pred.y || 0,
-            width: pred.width || 0,
-            height: pred.height || 0,
-            polygon_points: pred.points || null,
+            class_name: prediction.class || 'pothole',
+            confidence: prediction.confidence || 0,
+            severity: (prediction as any).severity || 'minor',
+            x: prediction.x || 0,
+            y: prediction.y || 0,
+            width: prediction.width || 0,
+            height: prediction.height || 0,
+            polygon_points: prediction.points || null,
           }));
           await saveDetections(detectionRecords);
         }
 
-        console.log(`[RoadGuard DB] Persisted video inspection #${inspectionId} with ${totalDetections} detections from ${frameCount} frames`);
+        console.log(
+          `[RoadGuard DB] Persisted video inspection #${inspectionId}: ${uniquePotholeCount} unique pothole(s), ` +
+          `${rawDetectionCount} raw frame detection(s), ${tracking.totalTracks} track(s)`,
+        );
       } else {
         persistenceWarning = 'Database pool not available — video detection not persisted';
         console.warn(`[RoadGuard DB] ${persistenceWarning}`);
@@ -496,7 +784,7 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
       console.error('[RoadGuard DB] Video persistence error (non-fatal):', dbError.message);
     }
 
-    // 7. Build response
+    // 9. Build response
     const responsePayload: any = {
       success: true,
       type: 'video',
@@ -509,21 +797,57 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
         codec: videoMeta.codec,
       },
       processing: {
-        extractionFps,
+        extractionFps: options.extractionFps,
         totalFrames: frameCount,
         processedFrames: frameResults.length,
         failedFrames: errors.length,
+        maxFrames,
+        estimatedFrames,
       },
+      model,
       analytics: {
-        totalDetections,
+        // Backwards-compatible raw frame total. The answer users need is
+        // uniquePotholeCount (also mirrored in `totalDetected` below).
+        totalDetections: rawDetectionCount,
+        totalDetected: uniquePotholeCount,
+        rawDetectionCount,
+        rawPredictionCount,
+        candidateDetectionCount,
+        frameDetectionCount,
+        duplicatePredictionsRemoved,
         uniquePotholeCount,
-        framesWithDetections: framesWithDetections.length,
-        maxConfidence: parseFloat(maxConfAll.toFixed(3)),
-        avgDamagePercentage: avgDamage,
-        overallRiskLevel: worstRisk,
+        confirmedPotholeCount: tracking.confirmedPotholeCount,
+        tentativePotholeCount: tracking.tentativePotholeCount,
+        totalTracks: tracking.totalTracks,
+        framesWithDetections,
+        maxConfidence: parseFloat(maxConfidence.toFixed(3)),
+        avgDamagePercentage: averageDamage,
+        overallRiskLevel,
+        worstFrameRiskLevel,
       },
+      quality: tracking.quality,
+      limitations,
+      tracking: {
+        parameters: tracking.parameters,
+        confirmedTracks: summarizeTracks(tracking.confirmedTracks),
+        tentativeTracks: summarizeTracks(tracking.tentativeTracks),
+      },
+      uniqueDetections: tracking.representativeDetections,
       frames: frameResults,
+      ...(warnings.length > 0 && { warnings }),
     };
+
+    if (options.debug) {
+      responsePayload.debug = {
+        rawFrameDetections: frameResults.map((frame) => ({
+          frameIndex: frame.frameIndex,
+          timestamp: frame.timestamp,
+          rawDetectionCount: frame.analytics.rawDetectionCount,
+          rawPredictionCount: frame.analytics.rawPredictionCount,
+          duplicatePredictionsRemoved: frame.analytics.duplicatePredictionsRemoved,
+        })),
+      };
+    }
 
     if (errors.length > 0) {
       responsePayload.errors = errors;

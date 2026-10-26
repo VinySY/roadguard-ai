@@ -4,7 +4,8 @@ import { VideoDetector } from './VideoDetector';
 import { CameraCapture } from './CameraCapture';
 import { EvidenceInputGrid, EvidenceMethod } from './EvidenceInputGrid';
 import { DetectionResult, UserRole } from '../../types';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ScanSearch } from 'lucide-react';
+import { PageHeader } from '../common/PageHeader';
 
 interface DetectionStudioProps {
   role?: UserRole;
@@ -46,50 +47,47 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Studio Header */}
-      <div className="pb-4 border-b border-slate-800">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-100 flex items-center gap-2">
-              <span>RoadGuard AI Detection Studio</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
-                Optical Inspection
-              </span>
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Select any of the four evidence input methods below to analyze roadway distress and classify severity.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-5xl space-y-6">
+      <PageHeader
+        eyebrow={
+          <>
+            <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />
+            AI detection studio
+          </>
+        }
+        icon={<ScanSearch className="h-4 w-4" aria-hidden="true" />}
+        title="Road distress detection"
+        description="Capture or upload evidence, run segmentation inference, then carry the verified findings straight into a road report."
+        actions={
+          <span className="rg-badge rg-badge-amber">Roboflow segmentation</span>
+        }
+      />
 
-      {/* Symmetrical 2x2 Grid on Mobile, 4-Across on Desktop */}
       <EvidenceInputGrid
         activeMethod={activeMethod}
         onSelectMethod={handleSelectMethod}
-        isActionOnly={true}
+        isActionOnly
       />
 
-      {/* Active Workspace Container */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm">
-        {/* 1. Upload Image Mode */}
+      {/* Active workspace */}
+      <div className="rg-panel rounded-2xl p-4 sm:p-6">
         {activeMethod === 'upload-image' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/50 pb-3 text-xs text-slate-400">
               <span className="font-medium text-slate-200">
-                {capturedPhotoUrl ? 'Analyzing Photo Captured from Camera' : 'Image Upload Detection'}
+                {capturedPhotoUrl ? 'Analyzing photo captured from camera' : 'Image upload detection'}
               </span>
               {capturedPhotoUrl && (
                 <button
+                  type="button"
                   onClick={() => {
                     setCapturedPhotoUrl(null);
                     setActiveMethod('take-photo');
                   }}
-                  className="flex items-center gap-1 text-amber-400 hover:underline font-medium"
+                  className="inline-flex items-center gap-1 font-medium text-amber-400 hover:text-amber-300"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Retake Photo</span>
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  Retake photo
                 </button>
               )}
             </div>
@@ -102,12 +100,11 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
           </div>
         )}
 
-        {/* 2. Take Photo with Camera Mode */}
         {activeMethod === 'take-photo' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 text-xs">
-              <span className="font-medium text-slate-200">Take Photo with Device Camera</span>
-              <span className="text-slate-400 font-mono text-[11px]">Live Camera Mode</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/50 pb-3 text-xs">
+              <span className="font-medium text-slate-200">Take photo with device camera</span>
+              <span className="font-mono text-[11px] text-slate-400">Live camera</span>
             </div>
 
             <CameraCapture
@@ -118,23 +115,23 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
           </div>
         )}
 
-        {/* 3. Upload Video Mode */}
         {activeMethod === 'upload-video' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/50 pb-3 text-xs text-slate-400">
               <span className="font-medium text-slate-200">
-                {capturedVideo ? 'Analyzing Video Recorded from Camera' : 'Video Footage Detection'}
+                {capturedVideo ? 'Analyzing video recorded from camera' : 'Video footage detection'}
               </span>
               {capturedVideo && (
                 <button
+                  type="button"
                   onClick={() => {
                     setCapturedVideo(null);
                     setActiveMethod('record-video');
                   }}
-                  className="flex items-center gap-1 text-amber-400 hover:underline font-medium"
+                  className="inline-flex items-center gap-1 font-medium text-amber-400 hover:text-amber-300"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Record Again</span>
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  Record again
                 </button>
               )}
             </div>
@@ -148,12 +145,11 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
           </div>
         )}
 
-        {/* 4. Record Video with Camera Mode */}
         {activeMethod === 'record-video' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 text-xs">
-              <span className="font-medium text-slate-200">Record Video with Device Camera</span>
-              <span className="text-slate-400 font-mono text-[11px]">MediaRecorder Mode</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/50 pb-3 text-xs">
+              <span className="font-medium text-slate-200">Record video with device camera</span>
+              <span className="font-mono text-[11px] text-slate-400">MediaRecorder</span>
             </div>
 
             <CameraCapture

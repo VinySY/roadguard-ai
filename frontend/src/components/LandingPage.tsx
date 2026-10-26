@@ -55,7 +55,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span>NEXT-GENERATION PAVEMENT DEFECT INTELLIGENCE</span>
             <span className="text-slate-600">/</span>
-            <span className="text-slate-400">YOLOv11 INSTANCE SEGMENTATION</span>
+            <span className="text-slate-400">RF-DETR INSTANCE SEGMENTATION</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.08] text-white">
@@ -121,7 +121,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             How RoadGuard Analyzes Road Imagery
           </h2>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Every pixel is evaluated through hosted YOLOv11 segmentation, producing deterministic polygon boundaries rather than arbitrary bounding boxes.
+            Every pixel is evaluated through hosted RF-DETR segmentation, producing deterministic polygon boundaries rather than arbitrary bounding boxes.
           </p>
         </div>
 
@@ -130,7 +130,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {[
             { step: '01', title: 'Road Image', desc: 'Raw camera or vehicle capture', icon: <Camera className="w-5 h-5 text-slate-300" /> },
             { step: '02', title: 'Computer Vision', desc: 'Pre-processed inference stream', icon: <Cpu className="w-5 h-5 text-amber-400" /> },
-            { step: '03', title: 'Segmentation', desc: 'YOLOv11 polygon mask extraction', icon: <Layers className="w-5 h-5 text-amber-400" />, highlight: true },
+            { step: '03', title: 'Segmentation', desc: 'RF-DETR polygon mask extraction', icon: <Layers className="w-5 h-5 text-amber-400" />, highlight: true },
             { step: '04', title: 'Confidence', desc: 'Statistical model certainty', icon: <Target className="w-5 h-5 text-slate-300" /> },
             { step: '05', title: 'Severity', desc: 'Surface footprint & depth assessment', icon: <ShieldAlert className="w-5 h-5 text-amber-400" /> },
             { step: '06', title: 'Risk Index', desc: 'Prioritized municipal danger tier', icon: <FileCheck className="w-5 h-5 text-emerald-400" /> },
@@ -193,7 +193,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Overlay simulation badge */}
             <div className="absolute top-4 left-4 bg-slate-950/80 backdrop-blur-md border border-amber-500/50 px-3 py-1.5 rounded-lg text-xs font-mono text-amber-400 flex items-center gap-2">
               <Scan className="w-3.5 h-3.5" />
-              <span>YOLOv11 Polygon Active</span>
+              <span>RF-DETR Polygon Active</span>
             </div>
             <div className="absolute bottom-4 right-4 bg-slate-950/80 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-300">
               Resolution: 4K Survey Capture
@@ -360,7 +360,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <ul className="space-y-2 text-slate-300">
               <li className="flex items-start gap-2">
                 <span className="text-emerald-400 font-bold">✓</span>
-                <span>Real Roboflow YOLOv11 instance segmentation via <code>/api/detect</code></span>
+                <span>Real Roboflow RF-DETR instance segmentation via <code>/api/detect</code></span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-emerald-400 font-bold">✓</span>
@@ -413,7 +413,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           Ready to Inspect Road Surfaces?
         </h2>
         <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto leading-relaxed">
-          Upload any asphalt photograph or test with pre-loaded samples to see YOLOv11 segmentation in action.
+          Upload any asphalt photograph or test with pre-loaded samples to see RF-DETR segmentation in action.
         </p>
         <div>
           <button

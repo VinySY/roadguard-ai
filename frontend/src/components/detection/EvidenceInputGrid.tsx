@@ -21,27 +21,27 @@ interface OptionConfig {
 const OPTIONS: OptionConfig[] = [
   {
     id: 'upload-image',
-    title: 'Upload Image',
+    title: 'Upload image',
     subtitle: 'Choose a photo',
-    icon: <Image className="w-5 h-5" strokeWidth={2} />,
+    icon: <Image className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
   },
   {
     id: 'take-photo',
-    title: 'Take Photo',
+    title: 'Take photo',
     subtitle: 'Use your camera',
-    icon: <Camera className="w-5 h-5" strokeWidth={2} />,
+    icon: <Camera className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
   },
   {
     id: 'upload-video',
-    title: 'Upload Video',
+    title: 'Upload video',
     subtitle: 'Choose a video',
-    icon: <Film className="w-5 h-5" strokeWidth={2} />,
+    icon: <Film className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
   },
   {
     id: 'record-video',
-    title: 'Record Video',
+    title: 'Record video',
     subtitle: 'Use your camera',
-    icon: <Video className="w-5 h-5" strokeWidth={2} />,
+    icon: <Video className="h-5 w-5" strokeWidth={2} aria-hidden="true" />,
   },
 ];
 
@@ -72,7 +72,6 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
     if (file && onImageFileSelect) {
       onImageFileSelect(file);
     }
-    // reset input value so re-selecting same file triggers event
     e.target.value = '';
   };
 
@@ -86,13 +85,13 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
 
   return (
     <div className="w-full">
-      {/* Hidden file inputs */}
       <input
         ref={imageInputRef}
         type="file"
         accept="image/*"
         onChange={handleImageChange}
         className="hidden"
+        aria-label="Choose a road photo"
       />
       <input
         ref={videoInputRef}
@@ -100,10 +99,10 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
         accept="video/*"
         onChange={handleVideoChange}
         className="hidden"
+        aria-label="Choose a road video"
       />
 
-      {/* Symmetrical 2x2 Grid on Mobile, 4-column row on Desktop */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 w-full">
+      <div className="grid w-full grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         {OPTIONS.map((opt) => {
           const isSelected = activeMethod === opt.id;
 
@@ -112,36 +111,32 @@ export const EvidenceInputGrid: React.FC<EvidenceInputGridProps> = ({
               key={opt.id}
               type="button"
               onClick={() => handleClick(opt.id)}
-              className={`group relative flex flex-col items-center justify-center text-center w-full h-[100px] sm:h-[112px] p-2.5 sm:p-3 rounded-xl border transition-all duration-150 select-none active:scale-[0.98] ${
+              aria-pressed={isSelected}
+              className={`group relative flex h-[100px] w-full select-none flex-col items-center justify-center rounded-xl border p-2.5 text-center transition-colors sm:h-[112px] sm:p-3 ${
                 isSelected
-                  ? 'bg-amber-500/10 dark:bg-slate-900 border-amber-500 ring-2 ring-amber-500/25 shadow-lg shadow-amber-500/10'
-                  : 'bg-white dark:bg-slate-900/80 hover:bg-slate-50 dark:hover:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
+                  ? 'border-amber-500/70 bg-amber-500/10 shadow-lg shadow-amber-500/10'
+                  : 'border-slate-700/60 bg-slate-900/80 hover:border-slate-600 hover:bg-slate-900'
               }`}
             >
-              {/* Icon Container (Identical size, shape, alignment across all 4) */}
-              <div
-                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center mb-1.5 border transition-transform duration-150 group-hover:scale-105 shrink-0 ${
+              <span
+                className={`mb-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-105 sm:h-10 sm:w-10 ${
                   isSelected
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-md'
-                    : 'bg-amber-500/10 border-amber-500/20 text-amber-500 dark:text-amber-400'
+                    ? 'border-amber-400 bg-amber-500 text-slate-950 shadow-md'
+                    : 'border-amber-500/20 bg-amber-500/10 text-amber-400'
                 }`}
               >
                 {opt.icon}
-              </div>
+              </span>
 
-              {/* Title (Symmetrical font size, identical line height, centered) */}
               <span
-                className={`text-xs font-semibold tracking-tight block w-full truncate px-1 transition-colors leading-tight ${
-                  isSelected
-                    ? 'text-amber-600 dark:text-amber-400 font-bold'
-                    : 'text-slate-800 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-slate-50'
+                className={`block w-full truncate px-1 text-xs font-semibold leading-tight tracking-tight ${
+                  isSelected ? 'text-amber-300' : 'text-slate-100'
                 }`}
               >
                 {opt.title}
               </span>
 
-              {/* Subtitle (Uniform text length, identical spacing and font) */}
-              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300 block w-full truncate px-1 mt-0.5 transition-colors leading-tight">
+              <span className="mt-0.5 block w-full truncate px-1 text-[10px] leading-tight text-slate-400 sm:text-[11px]">
                 {opt.subtitle}
               </span>
             </button>

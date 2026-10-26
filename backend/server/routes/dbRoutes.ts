@@ -1,4 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import { checkDbHealth } from '../db/pool.js';
 import {
   getInspections,
@@ -15,6 +19,45 @@ import {
   validateStatusUpdate,
   validatePagination,
 } from '../validation.js';
+import { getProjectRoot } from '../utils/paths.js';
+import { saveUploadBuffer, toPublicUploadUrl } from '../utils/uploads.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const projectRoot = getProjectRoot(__dirname);
+const uploadsRoot = join(projectRoot, 'uploads');
+
+const issueUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype.toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed.'));
+    }
+  },
+});
+
+function parseOptionalMultipartBody(req: Request, _res: Response, next: NextFunction) {
+  const contentType = String(req.headers['content-type'] || '');
+  if (contentType.includes('multipart/form-data')) {
+    return issueUpload.single('evidence')(req, _res, next);
+  }
+  next();
+}
+
+function withPublicMedia<T extends { evidence_path?: string | null; image_path?: string | null }>(record: T): T {
+  const extra: Record<string, string | null> = {};
+  if ('evidence_path' in record) {
+    extra.evidence_url = toPublicUploadUrl(record.evidence_path ?? null);
+  }
+  if ('image_path' in record) {
+    extra.image_url = toPublicUploadUrl(record.image_path ?? null);
+  }
+  return { ...record, ...extra };
+}
 
 /**
  * API routes for RoadGuard AI database features.
@@ -48,7 +91,10 @@ router.get('/api/inspections', async (req: Request, res: Response) => {
   try {
     const { limit, offset } = validatePagination(req.query);
     const result = await getInspections(limit, offset);
-    res.json(result);
+    res.json({
+      ...result,
+      inspections: result.inspections.map((row) => withPublicMedia(row)),
+    });
   } catch (err: any) {
     console.error('[API] GET /api/inspections error:', err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });
@@ -67,7 +113,7 @@ router.get('/api/inspections/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Inspection not found' });
     }
 
-    res.json(inspection);
+    res.json(withPublicMedia(inspection));
   } catch (err: any) {
     console.error(`[API] GET /api/inspections/${req.params.id} error:`, err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });
@@ -108,7 +154,10 @@ router.get('/api/issues', async (req: Request, res: Response) => {
     const { limit, offset } = validatePagination(req.query);
     const status = req.query.status ? String(req.query.status) : undefined;
     const result = await getRoadIssues({ limit, offset, status });
-    res.json(result);
+    res.json({
+      ...result,
+      issues: result.issues.map((row) => withPublicMedia(row)),
+    });
   } catch (err: any) {
     console.error('[API] GET /api/issues error:', err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });
@@ -127,15 +176,35 @@ router.get('/api/issues/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Road issue not found' });
     }
 
-    res.json(issue);
+    res.json(withPublicMedia(issue));
   } catch (err: any) {
     console.error(`[API] GET /api/issues/${req.params.id} error:`, err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });
   }
 });
 
-router.post('/api/issues', async (req: Request, res: Response) => {
-  const validation = validateRoadIssue(req.body);
+router.post('/api/issues', parseOptionalMultipartBody, async (req: Request, res: Response) => {
+  const body = { ...req.body };
+
+  if (req.file) {
+    try {
+      const saved = saveUploadBuffer(
+        uploadsRoot,
+        'evidence',
+        req.file.buffer,
+        req.file.originalname || 'complaint.jpg'
+      );
+      body.evidence_path = saved.relativePath;
+    } catch (err: any) {
+      console.error('[API] Failed to store issue evidence:', err.message);
+      return res.status(500).json({ error: 'Failed to store uploaded evidence image' });
+    }
+  } else if (typeof body.evidence_path === 'string' && (body.evidence_path.startsWith('blob:') || body.evidence_path.startsWith('data:'))) {
+    // Never persist session-only blob URLs — they break after refresh
+    body.evidence_path = null;
+  }
+
+  const validation = validateRoadIssue(body);
   if (!validation.valid) {
     return res.status(400).json({
       error: 'Validation failed',
@@ -155,7 +224,7 @@ router.post('/api/issues', async (req: Request, res: Response) => {
     });
 
     const issue = await getRoadIssueById(id);
-    res.status(201).json(issue);
+    res.status(201).json(issue ? withPublicMedia(issue) : issue);
   } catch (err: any) {
     console.error('[API] POST /api/issues error:', err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });
@@ -183,7 +252,7 @@ router.patch('/api/issues/:id/status', async (req: Request, res: Response) => {
     }
 
     const issue = await getRoadIssueById(id);
-    res.json(issue);
+    res.json(issue ? withPublicMedia(issue) : issue);
   } catch (err: any) {
     console.error(`[API] PATCH /api/issues/${id}/status error:`, err.message);
     res.status(503).json({ error: 'Database unavailable', details: err.message });

@@ -1,20 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RoadIssue, IssueStatus, User } from '../../types';
 import { storage } from '../../services/storage';
 import {
-  MapPin,
   Navigation,
   CheckCircle2,
-  Clock,
-  AlertTriangle,
-  Camera,
   Save,
   CheckSquare,
   Square,
   ArrowLeft,
   Wrench,
-  FileCheck,
+  ClipboardList,
 } from 'lucide-react';
+import { EvidenceImage } from '../common/EvidenceImage';
+import { PageHeader } from '../common/PageHeader';
+import { StatusBadge } from '../common/StatusBadge';
+import { EmptyState } from '../common/EmptyState';
 
 interface WorkerTasksViewProps {
   issues: RoadIssue[];
@@ -60,11 +60,35 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  // Keep the selected task in sync with map / dashboard deep links.
+  useEffect(() => {
+    if (selectedIssueId) setActiveIssueId(selectedIssueId);
+  }, [selectedIssueId]);
+
+  // Load the newly selected task's saved inspection values into the form.
+  useEffect(() => {
+    const issue = issues.find((i) => i.id === activeIssueId);
+    if (!issue) return;
+    setDepthCm(issue.inspection?.measurements?.estimatedDepthCm ?? 8);
+    setWidthCm(issue.inspection?.measurements?.estimatedWidthCm ?? 60);
+    setLengthCm(issue.inspection?.measurements?.estimatedLengthCm ?? 80);
+    setNotes(issue.inspection?.notes ?? '');
+    setChecklist({
+      depthMeasured: issue.inspection?.checklist?.depthMeasured ?? true,
+      trafficSafetyConePlaced: issue.inspection?.checklist?.trafficSafetyConePlaced ?? true,
+      pavementCrackingAssessed: issue.inspection?.checklist?.pavementCrackingAssessed ?? false,
+      utilityInterferenceChecked: issue.inspection?.checklist?.utilityInterferenceChecked ?? false,
+      asphaltBatchRequested: issue.inspection?.checklist?.asphaltBatchRequested ?? false,
+    });
+  }, [activeIssueId, issues]);
+
   if (!activeIssue) {
     return (
-      <div className="p-8 text-center text-slate-400">
-        <p>No assigned tasks in your queue.</p>
-      </div>
+      <EmptyState
+        icon={ClipboardList}
+        title="No assigned tasks in your queue"
+        description="New work orders appear here once a municipal inspector assigns them to your crew."
+      />
     );
   }
 
@@ -129,45 +153,43 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Top Header & Task Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          {onClose && (
+      <PageHeader
+        eyebrow={
+          <>
+            <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
+            Field task
+          </>
+        }
+        icon={<ClipboardList className="h-4 w-4" aria-hidden="true" />}
+        title={activeIssue.title}
+        description={
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="font-mono font-semibold text-amber-400">{activeIssue.referenceNumber}</span>
+            <StatusBadge status={activeIssue.status} />
+          </span>
+        }
+        actions={
+          <>
+            {onClose && (
+              <button type="button" onClick={onClose} className="rg-btn rg-btn-ghost" aria-label="Back to task list">
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back
+              </button>
+            )}
             <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              type="button"
+              onClick={() => {
+                const url = `https://www.google.com/maps/dir/?api=1&destination=${activeIssue.location.lat},${activeIssue.location.lng}`;
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="rg-btn rg-btn-secondary"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <Navigation className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+              Turn-by-turn GPS
             </button>
-          )}
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold text-amber-400">
-                {activeIssue.referenceNumber}
-              </span>
-              <span className="text-slate-500">·</span>
-              <span className="text-xs text-slate-400 capitalize">
-                Status: {activeIssue.status.replace(/_/g, ' ')}
-              </span>
-            </div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-100">{activeIssue.title}</h2>
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => {
-              const url = `https://www.google.com/maps/dir/?api=1&destination=${activeIssue.location.lat},${activeIssue.location.lng}`;
-              window.open(url, '_blank');
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 shadow-sm"
-          >
-            <Navigation className="w-3.5 h-3.5 text-amber-400" />
-            <span>Turn-by-Turn GPS</span>
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {statusMessage && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
@@ -183,10 +205,13 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
           {/* Photographic Evidence */}
           <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
             <div className="relative aspect-video flex items-center justify-center">
-              <img
+              <EvidenceImage
                 src={activeIssue.evidenceImageUrl}
-                alt="Pothole Inspection"
-                className="w-full h-full object-cover"
+                alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
+                caption={activeIssue.location.street || activeIssue.location.area}
+                className="h-full w-full"
+                imgClassName="w-full h-full object-cover"
+                allowFullView
               />
               <div className="absolute top-2 right-2 bg-slate-900/90 text-amber-400 text-[11px] font-mono px-2 py-0.5 rounded border border-slate-700">
                 Severity: {activeIssue.severity}
@@ -247,103 +272,77 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button
+                type="button"
                 onClick={() => handleUpdateStatus('inspection_scheduled')}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                aria-pressed={activeIssue.status === 'inspection_scheduled'}
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
                   activeIssue.status === 'inspection_scheduled'
-                    ? 'bg-amber-500/20 text-amber-400 border-amber-500'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    ? 'border-amber-500 bg-amber-500/20 text-amber-400'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                Mark Inspected
+                Mark inspected
               </button>
               <button
+                type="button"
                 onClick={() => handleUpdateStatus('in_repair')}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                aria-pressed={activeIssue.status === 'in_repair'}
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
                   activeIssue.status === 'in_repair'
-                    ? 'bg-blue-500/20 text-blue-400 border-blue-500'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    ? 'border-sky-500 bg-sky-500/20 text-sky-400'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                Patch in Progress
+                Patch in progress
               </button>
               <button
+                type="button"
                 onClick={() => handleUpdateStatus('resolved')}
-                className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${
+                aria-pressed={activeIssue.status === 'resolved'}
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
                   activeIssue.status === 'resolved'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                Certify Resolved
+                Certify resolved
               </button>
             </div>
           </div>
 
-          {/* Field Inspection Checklist */}
-          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-            <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
-              <CheckSquare className="w-4 h-4 text-amber-400" />
-              <span>Standard Field Inspection Checklist</span>
-            </h4>
+          {/* Field inspection checklist */}
+          <div className="rg-panel space-y-3 rounded-xl p-4">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-200">
+              <CheckSquare className="h-4 w-4 text-amber-400" aria-hidden="true" />
+              Standard field inspection checklist
+            </h3>
 
             <div className="space-y-2 text-xs">
-              <label
-                onClick={() => toggleChecklist('trafficSafetyConePlaced')}
-                className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer hover:bg-slate-800/50"
-              >
-                {checklist.trafficSafetyConePlaced ? (
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-500" />
-                )}
-                <span className={checklist.trafficSafetyConePlaced ? 'text-slate-200' : 'text-slate-400'}>
-                  Traffic safety cones & warning triangle placed upstream
-                </span>
-              </label>
-
-              <label
-                onClick={() => toggleChecklist('depthMeasured')}
-                className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer hover:bg-slate-800/50"
-              >
-                {checklist.depthMeasured ? (
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-500" />
-                )}
-                <span className={checklist.depthMeasured ? 'text-slate-200' : 'text-slate-400'}>
-                  Depth and perimeter measured with gauge
-                </span>
-              </label>
-
-              <label
-                onClick={() => toggleChecklist('pavementCrackingAssessed')}
-                className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer hover:bg-slate-800/50"
-              >
-                {checklist.pavementCrackingAssessed ? (
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-500" />
-                )}
-                <span className={checklist.pavementCrackingAssessed ? 'text-slate-200' : 'text-slate-400'}>
-                  Sub-base checked for water seepage or alligator cracking
-                </span>
-              </label>
-
-              <label
-                onClick={() => toggleChecklist('asphaltBatchRequested')}
-                className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer hover:bg-slate-800/50"
-              >
-                {checklist.asphaltBatchRequested ? (
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-500" />
-                )}
-                <span className={checklist.asphaltBatchRequested ? 'text-slate-200' : 'text-slate-400'}>
-                  Bituminous hot/cold asphalt batch requisitioned from plant
-                </span>
-              </label>
+              {(
+                [
+                  ['trafficSafetyConePlaced', 'Traffic safety cones & warning triangle placed upstream'],
+                  ['depthMeasured', 'Depth and perimeter measured with gauge'],
+                  ['pavementCrackingAssessed', 'Sub-base checked for water seepage or alligator cracking'],
+                  ['asphaltBatchRequested', 'Bituminous hot/cold asphalt batch requisitioned from plant'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleChecklist(key)}
+                  aria-pressed={checklist[key]}
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-left transition-colors hover:bg-slate-800/50"
+                >
+                  {checklist[key] ? (
+                    <CheckSquare className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+                  ) : (
+                    <Square className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+                  )}
+                  <span className={checklist[key] ? 'text-slate-200' : 'text-slate-400'}>{label}</span>
+                </button>
+              ))}
             </div>
 
             {/* Field Measurements */}
@@ -353,57 +352,63 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
               </span>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="text-[10px] text-slate-500 block mb-0.5">Depth (cm)</label>
+                  <label htmlFor="inspection-depth" className="mb-0.5 block text-[10px] text-slate-500">
+                    Depth (cm)
+                  </label>
                   <input
+                    id="inspection-depth"
                     type="number"
                     value={depthCm}
                     onChange={(e) => setDepthCm(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 font-mono"
+                    className="rg-input !py-1.5 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-500 block mb-0.5">Width (cm)</label>
+                  <label htmlFor="inspection-width" className="mb-0.5 block text-[10px] text-slate-500">
+                    Width (cm)
+                  </label>
                   <input
+                    id="inspection-width"
                     type="number"
                     value={widthCm}
                     onChange={(e) => setWidthCm(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 font-mono"
+                    className="rg-input !py-1.5 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-500 block mb-0.5">Length (cm)</label>
+                  <label htmlFor="inspection-length" className="mb-0.5 block text-[10px] text-slate-500">
+                    Length (cm)
+                  </label>
                   <input
+                    id="inspection-length"
                     type="number"
                     value={lengthCm}
                     onChange={(e) => setLengthCm(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 font-mono"
+                    className="rg-input !py-1.5 font-mono"
                   />
                 </div>
               </div>
             </div>
 
             {/* Field Notes */}
-            <div className="pt-2 border-t border-slate-800">
-              <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                Technician Notes & Observations
+            <div className="border-t border-slate-800 pt-2">
+              <label htmlFor="inspection-notes" className="mb-1 block text-[11px] font-semibold text-slate-400">
+                Technician notes &amp; observations
               </label>
               <textarea
+                id="inspection-notes"
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. Edges trimmed, tack coat applied, compacted with vibrating roller."
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                className="rg-textarea resize-none"
               />
             </div>
 
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={handleSaveNotes}
-                disabled={isSaving}
-                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm transition-colors"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save Checklist & Notes</span>
+            <div className="flex justify-end pt-2">
+              <button type="button" onClick={handleSaveNotes} disabled={isSaving} className="rg-btn rg-btn-primary">
+                <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Save checklist &amp; notes</span>
               </button>
             </div>
           </div>

@@ -2,7 +2,6 @@ import React from 'react';
 import { RoadIssue, LocationCoordinates, User } from '../../types';
 import { LeafletMap } from '../map/LeafletMap';
 import {
-  ShieldAlert,
   AlertOctagon,
   Clock,
   CheckCircle2,
@@ -10,9 +9,14 @@ import {
   ArrowRight,
   UserCheck,
   Building2,
-  TrendingUp,
   MapPin,
+  ClipboardList,
+  FileText,
 } from 'lucide-react';
+import { PageHeader } from '../common/PageHeader';
+import { StatCard } from '../common/StatCard';
+import { SeverityBadge, StatusBadge, statusLabel } from '../common/StatusBadge';
+import { EmptyState } from '../common/EmptyState';
 
 interface InspectorOverviewProps {
   currentUser: User;
@@ -50,13 +54,12 @@ export const InspectorOverview: React.FC<InspectorOverviewProps> = ({
 
   const unassignedCount = issues.filter((i) => !i.assignedWorkerId && i.status !== 'resolved').length;
 
-  // Recent municipal activity
+  // Recent municipal activity, derived from real issue timelines.
   const recentTimeline = issues
     .flatMap((issue) =>
       issue.timeline.map((event) => ({
         ...event,
         issueRef: issue.referenceNumber,
-        issueTitle: issue.title,
         issue,
       }))
     )
@@ -64,210 +67,193 @@ export const InspectorOverview: React.FC<InspectorOverviewProps> = ({
     .slice(0, 5);
 
   return (
-    <div className="space-y-6 w-full">
-      {/* Inspector Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
-        <div>
-          <div className="flex items-center gap-2 mb-0.5">
-            <Building2 className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-xs text-slate-400 font-mono">
-              Municipal Engineering & Quality Control Division
-            </span>
-          </div>
-          <h1 className="text-lg sm:text-xl font-bold text-slate-100">
-            Municipal Pavement Operations — {currentUser.name}
-          </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Jurisdiction: <span className="text-amber-400 font-medium">{currentUser.assignedZone || 'All Sectors'}</span>
-          </p>
-        </div>
+    <div className="w-full space-y-6">
+      <PageHeader
+        eyebrow={
+          <>
+            <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Municipal engineering &amp; quality control
+          </>
+        }
+        icon={<ClipboardList className="h-4 w-4" aria-hidden="true" />}
+        title={`Pavement operations — ${currentUser.name}`}
+        description={
+          <>
+            Jurisdiction:{' '}
+            <span className="font-medium text-amber-400">{currentUser.assignedZone || 'All sectors'}</span>
+            . Live municipal workload, crew dispatch, and incident triage.
+          </>
+        }
+        actions={
+          <>
+            <button type="button" onClick={onNavigateToAssignments} className="rg-btn rg-btn-secondary">
+              <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              Crew assignments ({unassignedCount})
+            </button>
+            <button type="button" onClick={onNavigateToReports} className="rg-btn rg-btn-primary">
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              Executive reports
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+      {/* Municipal workload — all values derived from live issue data */}
+      <section aria-label="Municipal workload" className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <StatCard label="Total road reports" value={totalReports} note="Across all zones" icon={ClipboardList} />
+        <StatCard
+          label="Awaiting inspection"
+          value={awaitingInspection}
+          note="Pending site visit"
+          icon={Clock}
+          tone="amber"
+        />
+        <StatCard
+          label="Under active repair"
+          value={underRepair}
+          note="Crews dispatched"
+          icon={Wrench}
+          tone="info"
+        />
+        <StatCard
+          label="Resolved"
+          value={resolvedCount}
+          note={
+            totalReports > 0
+              ? `${Math.round((resolvedCount / totalReports) * 100)}% of all reports`
+              : 'No reports yet'
+          }
+          icon={CheckCircle2}
+          tone="success"
+        />
+      </section>
+
+      {/* Situation map */}
+      <section className="space-y-2.5" aria-labelledby="situation-map-heading">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="situation-map-heading" className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            Municipal road situation map
+            <span className="text-xs font-normal text-slate-500">Incident density &amp; status</span>
+          </h2>
           <button
-            onClick={onNavigateToAssignments}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 shadow-sm"
-          >
-            <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-            <span>Crew Assignments ({unassignedCount})</span>
-          </button>
-          <button
-            onClick={onNavigateToReports}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm"
-          >
-            <span>Executive Reports</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 1. Meaningful Municipal-Level Statistics (Requirement 17) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Total Road Reports</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-slate-100 tabular-nums">
-            {totalReports}
-          </span>
-          <span className="text-[10px] text-slate-500 block mt-0.5">across all zones</span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Awaiting Inspection</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-amber-400 tabular-nums">
-            {awaitingInspection}
-          </span>
-          <span className="text-[10px] text-amber-500/80 block mt-0.5">pending site visit</span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Under Active Repair</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-blue-400 tabular-nums">
-            {underRepair}
-          </span>
-          <span className="text-[10px] text-blue-400/80 block mt-0.5">crews dispatched</span>
-        </div>
-
-        <div className="p-3 sm:p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-          <span className="text-xs text-slate-400 block mb-0.5">Remediated & Certified</span>
-          <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 tabular-nums">
-            {resolvedCount}
-          </span>
-          <span className="text-[10px] text-emerald-500/80 block mt-0.5">
-            {totalReports > 0 ? Math.round((resolvedCount / totalReports) * 100) : 100}% resolution rate
-          </span>
-        </div>
-      </div>
-
-      {/* 2. Interactive Municipal Map Overview */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-            <span>Municipal Road Situation Map</span>
-            <span className="text-xs text-slate-400 font-normal">· Real-time incident density & status</span>
-          </h3>
-          <button
+            type="button"
             onClick={onNavigateToMap}
-            className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+            className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 transition-colors hover:text-amber-300"
           >
-            Open Full Map Console &rarr;
+            Open full map console
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="rounded-xl overflow-hidden border border-slate-800 shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-slate-700/60 shadow-lg">
           <LeafletMap
             issues={issues}
             role="inspector"
             userLocation={userLocation}
             onLocationUpdate={onLocationUpdate}
             onSelectIssue={onOpenIssue}
-            height="300px"
+            height="320px"
           />
         </div>
-      </div>
+      </section>
 
-      {/* 3. Needs Attention & Recent Activity (Requirement 17) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Needs Attention Column (7 cols) */}
-        <div className="lg:col-span-7 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-              <AlertOctagon className="w-4 h-4 text-rose-400" />
-              <span>Needs Supervisor Attention ({criticalIssues.length})</span>
-            </h3>
-            <span className="text-xs text-slate-400 font-mono">Critical & High Priority</span>
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        {/* Needs attention */}
+        <section className="space-y-3 lg:col-span-7" aria-labelledby="attention-heading">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="attention-heading" className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <AlertOctagon className="h-4 w-4 text-rose-400" aria-hidden="true" />
+              Needs supervisor attention ({criticalIssues.length})
+            </h2>
+            <span className="font-mono text-[11px] text-slate-500">Critical &amp; high priority</span>
           </div>
 
-          <div className="space-y-3">
-            {criticalIssues.map((issue) => (
-              <div
-                key={issue.id}
-                onClick={() => onOpenIssue(issue)}
-                className="p-4 rounded-xl bg-slate-900 border border-slate-800/90 hover:border-slate-700 hover:bg-slate-850 active:bg-slate-800 active:scale-[0.995] transition-all cursor-pointer space-y-3 shadow-sm group select-none"
-              >
-                {/* Reference & Refined Metadata Row */}
-                <div className="space-y-1">
+          {criticalIssues.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="No critical incidents open"
+              description="Every high and critical severity report is resolved or already assigned."
+            />
+          ) : (
+            <div className="space-y-3">
+              {criticalIssues.map((issue) => (
+                <button
+                  key={issue.id}
+                  type="button"
+                  onClick={() => onOpenIssue(issue)}
+                  className="rg-card rg-card-interactive block w-full space-y-3 p-4 text-left"
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-xs font-bold text-slate-300 group-hover:text-amber-400 transition-colors">
-                      {issue.referenceNumber}
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-mono">
+                    <span className="font-mono text-xs font-bold text-slate-300">{issue.referenceNumber}</span>
+                    <span className="font-mono text-[11px] text-slate-500">
                       {new Date(issue.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded border capitalize ${
-                        issue.severity === 'critical'
-                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                      }`}
-                    >
-                      {issue.severity}
-                    </span>
-                    <span className="text-slate-600">·</span>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SeverityBadge severity={issue.severity} />
+                    <StatusBadge status={issue.status} />
                     <span className="text-xs text-slate-400">
                       {issue.assignedWorkerName ? issue.assignedWorkerName.split(' ')[0] : 'Unassigned'}
                     </span>
                   </div>
-                </div>
 
-                {/* Primary Info: Issue Title */}
-                <h4 className="text-sm font-semibold text-slate-100 group-hover:text-amber-400 transition-colors leading-snug">
-                  {issue.title}
-                </h4>
+                  <h3 className="text-sm font-semibold leading-snug text-slate-100">{issue.title}</h3>
 
-                {/* Secondary Info: Location */}
-                <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span className="truncate">{issue.location.street || issue.location.area}, {issue.location.city}</span>
-                </p>
-
-                {/* Tertiary Info: SLA & Action */}
-                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2.5 border-t border-slate-800/80 font-mono">
-                  <div className="flex items-center gap-1.5">
-                    <span>SLA Target: 24h</span>
-                    <span className="text-slate-600">·</span>
-                    <span className="capitalize text-slate-400">{issue.status.replace(/_/g, ' ')}</span>
-                  </div>
-                  <span className="text-amber-400 font-medium text-xs flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                    <span>Manage Incident</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Municipal Activity Feed (5 cols) */}
-        <div className="lg:col-span-5 space-y-3">
-          <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-slate-400" />
-            <span>Recent Municipal Activity</span>
-          </h3>
-
-          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
-            {recentTimeline.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => onOpenIssue(item.issue)}
-                className="flex items-start gap-3 cursor-pointer hover:bg-slate-800/40 p-1.5 rounded-lg transition-colors group"
-              >
-                <div className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0"></div>
-                <div className="space-y-0.5 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-200 group-hover:text-amber-400 transition-colors">
-                      {item.title}
+                  <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
+                    <span className="truncate">
+                      {issue.location.street || issue.location.area}, {issue.location.city}
                     </span>
-                    <span className="text-[10px] font-mono text-slate-500">{item.issueRef}</span>
+                  </p>
+
+                  <div className="flex items-center justify-between border-t border-slate-700/40 pt-2.5 font-mono text-[11px] text-slate-500">
+                    <span>{statusLabel(issue.status)}</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-amber-400">
+                      Manage incident
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </span>
                   </div>
-                  <p className="text-xs text-slate-400 line-clamp-1">{item.description}</p>
-                  <span className="text-[10px] font-mono text-slate-500 block">
-                    {item.timestamp} · {item.actor || 'Municipal System'}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Activity feed */}
+        <section className="space-y-3 lg:col-span-5" aria-labelledby="activity-heading">
+          <h2 id="activity-heading" className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <Clock className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            Recent municipal activity
+          </h2>
+
+          {recentTimeline.length === 0 ? (
+            <EmptyState icon={Clock} title="No activity recorded yet" description="Timeline events appear as reports move through inspection and repair." />
+          ) : (
+            <div className="rg-panel space-y-3 rounded-xl p-4">
+              {recentTimeline.map((item, idx) => (
+                <button
+                  key={`${item.issueRef}-${idx}`}
+                  type="button"
+                  onClick={() => onOpenIssue(item.issue)}
+                  className="flex w-full items-start gap-3 rounded-lg p-1.5 text-left transition-colors hover:bg-slate-800/40"
+                >
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                  <span className="min-w-0 space-y-0.5">
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-200">{item.title}</span>
+                      <span className="font-mono text-[10px] text-slate-500">{item.issueRef}</span>
+                    </span>
+                    <span className="block truncate text-xs text-slate-400">{item.description}</span>
+                    <span className="block font-mono text-[10px] text-slate-500">
+                      {item.timestamp} · {item.actor || 'Municipal system'}
+                    </span>
                   </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

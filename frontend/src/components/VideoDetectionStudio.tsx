@@ -47,7 +47,7 @@ const MAX_VIDEO_SIZE_BYTES = MAX_VIDEO_SIZE_MB * 1024 * 1024;
 export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
   const [videoState, setVideoState] = useState<VideoDetectionState>({ status: 'idle' });
   const [confidence, setConfidence] = useState<number>(20);
-  const [iouThreshold, setIouThreshold] = useState<number>(0.70);
+  const [iouThreshold, setIouThreshold] = useState<number>(0.20);
   const [extractionFps, setExtractionFps] = useState<number>(1.0);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number | null>(null);
@@ -689,7 +689,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
             <span>AI Video Pothole Detection Studio</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Continuous Road Survey Video Analysis with FFmpeg Keyframe Extraction, Roboflow YOLOv11 Inference, and Spatial-Temporal Pothole Tracking
+            Continuous Road Survey Video Analysis with FFmpeg Keyframe Extraction, Roboflow RF-DETR Inference, and Spatial-Temporal Pothole Tracking
           </p>
         </div>
 
@@ -871,7 +871,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
                   Configure Detection Parameters
                 </h3>
                 <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                  Adjust confidence sensitivity and extraction settings before initiating deep Roboflow YOLOv11 inspection.
+                  Adjust confidence sensitivity and extraction settings before initiating deep Roboflow RF-DETR inspection.
                 </p>
               </div>
 
@@ -981,12 +981,12 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
 
                     <div className="pt-2 border-t border-slate-900">
                       <div className="flex justify-between text-slate-400 mb-1">
-                        <span>IoU Tracking Threshold</span>
+                        <span>Tracking Match Threshold</span>
                         <span className="font-mono text-amber-400">{(iouThreshold * 100).toFixed(0)}%</span>
                       </div>
                       <input
                         type="range"
-                        min="0.40"
+                        min="0.10"
                         max="0.90"
                         step="0.05"
                         value={iouThreshold}
@@ -994,7 +994,8 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
                         className="w-full accent-amber-500 cursor-pointer"
                       />
                       <span className="text-[10px] text-slate-500">
-                        Controls spatial overlap required to merge detections across consecutive frames.
+                        Strong-overlap gate for cross-frame association. Lower values tolerate more camera
+                        motion; motion prediction and centre-distance gating prevent distant objects merging.
                       </span>
                     </div>
                   </div>
@@ -1047,7 +1048,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
             <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono text-amber-400">
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                <span>FFMPEG + YOLOv11</span>
+                <span>FFMPEG + RF-DETR</span>
               </span>
               <span>CONF: {confidence}%</span>
             </div>
@@ -1075,7 +1076,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
               </div>
               <div className={`flex items-center gap-2.5 ${processingStep >= 2 ? 'text-amber-400' : 'text-slate-600'}`}>
                 <div className={`w-2 h-2 rounded-full ${processingStep >= 2 ? 'bg-amber-400 animate-pulse' : 'bg-slate-700'}`} />
-                <span>2. Executing Roboflow YOLOv11 instance segmentation</span>
+                <span>2. Executing Roboflow RF-DETR instance segmentation</span>
               </div>
               <div className={`flex items-center gap-2.5 ${processingStep >= 3 ? 'text-amber-400' : 'text-slate-600'}`}>
                 <div className={`w-2 h-2 rounded-full ${processingStep >= 3 ? 'bg-amber-400 animate-pulse' : 'bg-slate-700'}`} />
@@ -1146,7 +1147,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
                 {videoState.result.analytics.uniquePotholeCount}
               </div>
               <span className="text-[10px] text-amber-300/80 font-mono block mt-0.5">
-                IoU Deduplicated Defect Count
+                Cross-Frame Tracked Count
               </span>
             </div>
 
@@ -1225,7 +1226,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
                   Raw Detections ({videoState.result.analytics.totalDetections}) vs. Unique Potholes ({videoState.result.analytics.uniquePotholeCount})
                 </span>
                 <p className="text-slate-400 text-[11px] leading-relaxed">
-                  As the vehicle traverses the road, a single pothole is captured across multiple sequential video frames. RoadGuard's spatial-temporal IoU tracking matches overlapping bounding boxes, ensuring municipal work orders record exactly <strong>{videoState.result.analytics.uniquePotholeCount} distinct road defect(s)</strong> rather than inflated duplicates.
+                  As the vehicle traverses the road, a single pothole is captured across multiple sequential video frames. RoadGuard first merges overlapping predictions inside each frame, then tracks confirmed potholes across frames using motion prediction and mask/box overlap. The final work-order count is <strong>{videoState.result.analytics.uniquePotholeCount} distinct road defect(s)</strong>; the raw frame total is shown only for audit.
                 </p>
               </div>
             </div>
@@ -1237,6 +1238,24 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
               </div>
             )}
           </div>
+
+          {(videoState.result.limitations?.length || videoState.result.warnings?.length) ? (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-[11px] text-slate-400 space-y-1.5">
+              <span className="font-bold text-slate-200 text-xs">Counting reliability notes</span>
+              {videoState.result.warnings?.map((warning, idx) => (
+                <p key={`video-studio-warning-${idx}`} className="flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                  <span>{warning}</span>
+                </p>
+              ))}
+              {videoState.result.limitations?.map((limitation, idx) => (
+                <p key={`video-studio-limitation-${idx}`} className="flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-500" />
+                  <span>{limitation}</span>
+                </p>
+              ))}
+            </div>
+          ) : null}
 
           {/* Main Inspection Layout (Split 2 cols / 1 col) */}
           <div className="grid lg:grid-cols-3 gap-6">
@@ -1546,7 +1565,7 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
 
               {/* Bottom Quick-Action Panel */}
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                <span>Model: YOLOv11 Instance Seg</span>
+                <span>Model: RF-DETR Instance Seg</span>
                 <button
                   type="button"
                   onClick={handleReset}

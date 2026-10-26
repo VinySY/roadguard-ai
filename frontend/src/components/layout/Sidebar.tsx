@@ -12,10 +12,10 @@ import {
   BarChart3,
   UserCheck,
   Settings,
-  HelpCircle,
-  LogOut,
-  Bell,
+  LogIn,
   Building2,
+  Compass,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,7 +26,76 @@ interface SidebarProps {
   currentUser: User | null;
   onOpenAuth: () => void;
   onOpenSettings: () => void;
+  onGoToLanding?: () => void;
 }
+
+interface NavItem {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+}
+
+const ROLE_WORKSPACE: Record<UserRole, { label: string; blurb: string; icon: React.ReactNode }> = {
+  citizen: {
+    label: 'Citizen Portal',
+    blurb: 'Report and track hazards',
+    icon: <Home className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+  worker: {
+    label: 'Field Crew',
+    blurb: 'Work orders and inspections',
+    icon: <Wrench className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+  inspector: {
+    label: 'Municipal Desk',
+    blurb: 'Oversight, dispatch and analytics',
+    icon: <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />,
+  },
+};
+
+const ROLE_NAV: Record<UserRole, { section: string; items: NavItem[] }[]> = {
+  citizen: [
+    {
+      section: 'Workspace',
+      items: [
+        { id: 'home', label: 'Home Dashboard', icon: <Home className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'detection', label: 'Detection Studio', icon: <Camera className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'reports', label: 'My Reports', icon: <FileText className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'map', label: 'Road Map', icon: <MapPin className="h-4 w-4" aria-hidden="true" /> },
+      ],
+    },
+  ],
+  worker: [
+    {
+      section: 'Field operations',
+      items: [
+        { id: 'dashboard', label: "Today's Work", icon: <ClipboardList className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'tasks', label: 'My Tasks', icon: <Wrench className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'map', label: 'Assigned Route', icon: <MapPin className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'detection', label: 'Detection Studio', icon: <Camera className="h-4 w-4" aria-hidden="true" /> },
+      ],
+    },
+  ],
+  inspector: [
+    {
+      section: 'Operations',
+      items: [
+        { id: 'overview', label: 'Operations Overview', icon: <Home className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'map', label: 'Live Municipal Map', icon: <MapPin className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'issues', label: 'Road Issues Registry', icon: <Layers className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'assignments', label: 'Crew Assignments', icon: <UserCheck className="h-4 w-4" aria-hidden="true" /> },
+      ],
+    },
+    {
+      section: 'Insight',
+      items: [
+        { id: 'reports', label: 'Executive Reports', icon: <FileText className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'analytics', label: 'Pavement Analytics', icon: <BarChart3 className="h-4 w-4" aria-hidden="true" /> },
+        { id: 'detection', label: 'Detection Studio', icon: <Camera className="h-4 w-4" aria-hidden="true" /> },
+      ],
+    },
+  ],
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeRole,
@@ -36,247 +105,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onOpenAuth,
   onOpenSettings,
+  onGoToLanding,
 }) => {
+  const workspace = ROLE_WORKSPACE[activeRole];
+
   return (
-    <aside className="hidden lg:flex flex-col w-56 xl:w-60 bg-white/80 dark:bg-slate-950/80 border-r border-slate-200 dark:border-slate-800 p-3 shrink-0 h-full overflow-y-auto select-none transition-colors">
-      {/* Role Kicker */}
-      <div className="px-2.5 py-1.5 mb-2.5 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800/80 text-xs">
-        <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">
-          Current Workspace
-        </span>
-        <span className="text-slate-900 dark:text-slate-200 font-semibold capitalize flex items-center gap-1.5 mt-0.5">
-          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-          {activeRole === 'citizen'
-            ? 'Citizen Portal'
-            : activeRole === 'worker'
-            ? 'Field Crew Workstation'
-            : 'Municipal Operations Desk'}
-        </span>
+    <aside className="hidden h-full w-56 shrink-0 select-none flex-col overflow-y-auto border-r border-slate-800/70 bg-slate-950/60 p-3 backdrop-blur-xl lg:flex xl:w-60">
+      {/* Workspace identity */}
+      <div className="mb-3 rounded-xl border border-slate-800/80 bg-slate-900/50 p-2.5">
+        <span className="rg-nav-section !px-0 !pt-0">Current workspace</span>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-400">
+            {workspace.icon}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-slate-100">{workspace.label}</div>
+            <div className="truncate text-[10px] text-slate-500">{workspace.blurb}</div>
+          </div>
+        </div>
       </div>
 
-      {/* Navigation Links depending on role */}
-      <nav className="space-y-1 flex-1 overflow-y-auto">
-        {/* CITIZEN NAV */}
+      <nav className="flex-1 space-y-1 overflow-y-auto" aria-label="Workspace navigation">
         {activeRole === 'citizen' && (
-          <>
-            <button
-              onClick={() => onSelectNav('home')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'home'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Home className="w-4 h-4" />
-              <span>Home Dashboard</span>
-            </button>
-
-            <button
-              onClick={onOpenReportModal}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-950 bg-amber-500 hover:bg-amber-400 shadow-sm transition-colors my-2"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Report a Problem</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('detection')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'detection'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span>Detection Studio</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('reports')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'reports'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>My Reports</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('map')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'map'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Road Map</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onOpenReportModal}
+            className="rg-btn rg-btn-primary mb-3 w-full justify-start"
+          >
+            <PlusCircle className="h-4 w-4" aria-hidden="true" />
+            <span>Report a Problem</span>
+          </button>
         )}
 
-        {/* WORKER NAV */}
-        {activeRole === 'worker' && (
-          <>
-            <button
-              onClick={() => onSelectNav('dashboard')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'dashboard'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4" />
-              <span>Today's Work</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('tasks')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'tasks'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Wrench className="w-4 h-4" />
-              <span>My Tasks</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('map')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'map'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Assigned Route Map</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('detection')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'detection'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span>Detection Studio</span>
-            </button>
-          </>
-        )}
-
-        {/* INSPECTOR NAV */}
-        {activeRole === 'inspector' && (
-          <>
-            <button
-              onClick={() => onSelectNav('overview')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'overview'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Home className="w-4 h-4" />
-              <span>Operations Overview</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('map')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'map'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Live Municipal Map</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('issues')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'issues'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              <span>Road Issues Registry</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('assignments')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'assignments'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>Crew Assignments</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('reports')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'reports'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Executive Reports</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('analytics')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'analytics'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Pavement Analytics</span>
-            </button>
-
-            <button
-              onClick={() => onSelectNav('detection')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                currentNav === 'detection'
-                  ? 'bg-amber-500/10 text-amber-400 font-semibold'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span>Detection Studio</span>
-            </button>
-          </>
-        )}
+        {ROLE_NAV[activeRole].map((group) => (
+          <div key={group.section} className="space-y-0.5">
+            <div className="rg-nav-section">{group.section}</div>
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectNav(item.id)}
+                aria-current={currentNav === item.id ? 'page' : undefined}
+                className="rg-nav-item"
+              >
+                {item.icon}
+                <span className="truncate">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        ))}
       </nav>
 
-      {/* Secondary & Bottom Profile Links */}
-      <div className="pt-4 border-t border-slate-800 space-y-1">
-        <button
-          onClick={onOpenSettings}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors"
-        >
-          <Settings className="w-4 h-4" />
-          <span>Demo Municipal Settings</span>
+      {/* Utility links */}
+      <div className="mt-3 space-y-0.5 border-t border-slate-800/80 pt-3">
+        {onGoToLanding && (
+          <button type="button" onClick={onGoToLanding} className="rg-nav-item">
+            <Compass className="h-4 w-4" aria-hidden="true" />
+            <span>Platform Overview</span>
+          </button>
+        )}
+        <button type="button" onClick={onOpenSettings} className="rg-nav-item">
+          <Settings className="h-4 w-4" aria-hidden="true" />
+          <span>Municipal Settings</span>
+        </button>
+        <button type="button" onClick={onOpenAuth} className="rg-nav-item">
+          <LogIn className="h-4 w-4" aria-hidden="true" />
+          <span>{currentUser ? 'Switch user' : 'Sign in'}</span>
         </button>
 
-        <button
-          onClick={onOpenAuth}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>{currentUser ? 'Switch / Sign Out' : 'Sign In'}</span>
-        </button>
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-800/70 bg-slate-900/40 px-2.5 py-2">
+          <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="truncate text-[11px] font-medium text-slate-300">
+              {currentUser ? currentUser.name : 'Guest session'}
+            </div>
+            <div className="truncate text-[10px] text-slate-500">
+              {currentUser ? currentUser.email : 'Not signed in'}
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
   );

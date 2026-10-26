@@ -208,10 +208,12 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
             </div>
             <p className="text-sm text-rose-300 font-medium mb-3">{streamError}</p>
             <button
+              type="button"
               onClick={() => startCamera(facingMode, mode)}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold"
+              className="rg-btn rg-btn-secondary"
             >
-              Try Again
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              Try again
             </button>
           </div>
         ) : capturedPreview ? (
@@ -261,110 +263,116 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
         )}
       </div>
 
-      {/* Control Bar */}
-      <div className="w-full p-4 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-4">
+      {/* Control bar */}
+      <div className="flex w-full items-center justify-between gap-4 border-t border-slate-800 bg-slate-900 p-4">
         {capturedPreview ? (
-          <div className="w-full flex items-center justify-between">
-            <button
-              onClick={handleRetake}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Retake {capturedPreview.type === 'image' ? 'Photo' : 'Video'}
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <button type="button" onClick={handleRetake} className="rg-btn rg-btn-secondary">
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Retake {capturedPreview.type === 'image' ? 'photo' : 'video'}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {onCancel && (
-                <button
-                  onClick={onCancel}
-                  className="px-3 py-2 text-slate-400 hover:text-slate-200 text-xs font-medium"
-                >
+                <button type="button" onClick={onCancel} className="rg-btn rg-btn-ghost">
                   Cancel
                 </button>
               )}
-              <button
-                onClick={handleConfirm}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-colors shadow-md"
-              >
-                <Check className="w-4 h-4" />
-                <span>Use {capturedPreview.type === 'image' ? 'Photo' : 'Video'} in AI Detection</span>
+              <button type="button" onClick={handleConfirm} className="rg-btn rg-btn-primary">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                <span>Use {capturedPreview.type === 'image' ? 'photo' : 'video'} in AI detection</span>
               </button>
             </div>
           </div>
         ) : (
           <>
             {/* Mode switch: PHOTO | VIDEO */}
-            <div className="flex items-center bg-slate-800 p-1 rounded-lg">
+            <div
+              role="group"
+              aria-label="Capture mode"
+              className="flex items-center rounded-lg bg-slate-800 p-1"
+            >
               <button
+                type="button"
                 onClick={() => setMode('photo')}
                 disabled={isRecording}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                aria-pressed={mode === 'photo'}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                   mode === 'photo'
-                    ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
+                    ? 'bg-amber-500 font-semibold text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Camera className="w-3.5 h-3.5" />
+                <Camera className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Photo</span>
               </button>
               <button
+                type="button"
                 onClick={() => setMode('video')}
                 disabled={isRecording}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                aria-pressed={mode === 'video'}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                   mode === 'video'
-                    ? 'bg-amber-500 text-slate-950 font-semibold shadow-sm'
+                    ? 'bg-amber-500 font-semibold text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Video className="w-3.5 h-3.5" />
+                <Video className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Video</span>
               </button>
             </div>
 
-            {/* Shutter / Record Button */}
+            {/* Shutter / record button */}
             <div>
               {mode === 'photo' ? (
                 <button
+                  type="button"
                   onClick={takePhoto}
-                  className="w-14 h-14 rounded-full border-4 border-amber-500 flex items-center justify-center p-1 hover:scale-105 active:scale-95 transition-transform"
+                  className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-amber-500 p-1 transition-transform hover:scale-105 active:scale-95"
                   aria-label="Capture road photo"
                 >
-                  <div className="w-full h-full bg-amber-500 rounded-full shadow-lg"></div>
+                  <div className="h-full w-full rounded-full bg-amber-500 shadow-lg" />
                 </button>
               ) : isRecording ? (
                 <button
+                  type="button"
                   onClick={stopVideoRecording}
-                  className="w-14 h-14 rounded-full border-4 border-rose-500 flex items-center justify-center p-1 hover:scale-105 active:scale-95 transition-transform animate-pulse"
+                  className="flex h-14 w-14 animate-pulse items-center justify-center rounded-full border-4 border-rose-500 p-1 transition-transform hover:scale-105 active:scale-95"
                   aria-label="Stop recording video"
                 >
-                  <div className="w-6 h-6 bg-rose-500 rounded-md"></div>
+                  <div className="h-6 w-6 rounded-md bg-rose-500" />
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={startVideoRecording}
-                  className="w-14 h-14 rounded-full border-4 border-rose-500 flex items-center justify-center p-1 hover:scale-105 active:scale-95 transition-transform"
+                  className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-rose-500 p-1 transition-transform hover:scale-105 active:scale-95"
                   aria-label="Start recording video"
                 >
-                  <div className="w-full h-full bg-rose-500 rounded-full shadow-lg"></div>
+                  <div className="h-full w-full rounded-full bg-rose-500 shadow-lg" />
                 </button>
               )}
             </div>
 
-            {/* Flip Camera & Close */}
+            {/* Flip camera & close */}
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={toggleFacingMode}
                 disabled={isRecording}
-                title="Switch Camera (Front/Back)"
-                className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title="Switch camera (front/back)"
+                aria-label="Switch camera between front and back"
+                className="rg-icon-btn disabled:opacity-50"
               >
-                <FlipHorizontal className="w-4 h-4" />
+                <FlipHorizontal className="h-4 w-4" aria-hidden="true" />
               </button>
               {onCancel && (
                 <button
+                  type="button"
                   onClick={onCancel}
-                  className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                  className="rg-icon-btn"
+                  aria-label="Close camera capture"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
             </div>

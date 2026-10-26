@@ -3,15 +3,11 @@ import { DetectionResult, UserRole, BoundingBox, VideoFrameDetection } from '../
 import { detectPotholesInVideo } from '../../services/detection';
 import {
   UploadCloud,
-  Play,
-  Pause,
   AlertTriangle,
   ArrowRight,
   Loader2,
   Sparkles,
   CheckCircle2,
-  Eye,
-  Sliders,
   Film,
   Layers,
 } from 'lucide-react';
@@ -163,34 +159,48 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
   return (
     <div className="space-y-4">
       {!videoUrl ? (
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-700 hover:border-amber-500/70 rounded-2xl p-8 text-center bg-slate-900/50 hover:bg-slate-900/80 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[240px]"
-        >
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
-            <UploadCloud className="w-7 h-7" />
-          </div>
-          <h4 className="text-base font-semibold text-slate-100 mb-1">
-            Upload Dashcam / Road Video for Inspection
-          </h4>
-          <p className="text-xs text-slate-400 max-w-sm mb-4">
-            Drag and drop road video, or click to browse. Supports MP4, WebM, and MOV up to 100MB.
-          </p>
-          <button
-            type="button"
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm"
+        <div className="space-y-3">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Upload a road video for inspection"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className="flex min-h-[240px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900/50 p-8 text-center transition-colors hover:border-amber-500/70 hover:bg-slate-900/80"
           >
-            Select Video File
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            onChange={handleFileChange}
-            className="hidden"
-          />
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-400">
+              <UploadCloud className="h-7 w-7" aria-hidden="true" />
+            </div>
+            <h4 className="mb-1 text-base font-semibold text-slate-100">
+              Upload dashcam or road video for inspection
+            </h4>
+            <p className="mb-4 max-w-sm text-xs text-slate-400">
+              Drag and drop road video, or click to browse. Supports MP4, WebM, and MOV up to 100MB.
+            </p>
+            <span className="rg-btn rg-btn-primary">Select video file</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              onChange={handleFileChange}
+              className="hidden"
+              aria-label="Choose a road video"
+            />
+          </div>
+
+          {errorMessage && (
+            <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -334,15 +344,16 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-900 rounded-xl border border-slate-800">
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => {
                   setVideoUrl(null);
                   setVideoFile(null);
                   setVideoResult(null);
                   setErrorMessage(null);
                 }}
-                className="text-xs text-slate-400 hover:text-slate-200 underline font-medium"
+                className="text-xs font-medium text-slate-400 underline hover:text-slate-200"
               >
-                Choose Different Video
+                Choose different video
               </button>
 
               {videoResult && (
@@ -363,37 +374,37 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
 
             {!videoResult ? (
               <button
+                type="button"
                 onClick={handleStartAnalysis}
                 disabled={isProcessing}
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg transition-colors shadow-md disabled:opacity-50"
+                className="rg-btn rg-btn-primary"
               >
-                <Sparkles className="w-4 h-4" />
-                {isProcessing ? 'Analyzing Frames...' : 'Analyze Video with RoadGuard AI'}
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                {isProcessing ? 'Analyzing frames…' : 'Analyze video with RoadGuard AI'}
               </button>
             ) : (
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleStartAnalysis}
                   disabled={isProcessing}
-                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg"
+                  className="rg-btn rg-btn-secondary rg-btn-sm"
                 >
                   Re-analyze
                 </button>
                 {onViewOnMap && (
-                  <button
-                    onClick={onViewOnMap}
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg"
-                  >
-                    View on Map
+                  <button type="button" onClick={onViewOnMap} className="rg-btn rg-btn-secondary rg-btn-sm">
+                    View on map
                   </button>
                 )}
                 {onProceedToReport && (
                   <button
+                    type="button"
                     onClick={() => onProceedToReport(videoResult)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm"
+                    className="rg-btn rg-btn-primary rg-btn-sm"
                   >
-                    <span>Create Municipal Report</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>Create municipal report</span>
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -439,11 +450,11 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                   <h4 className="text-sm font-semibold text-slate-100">
-                    Video Analysis Complete: RoadGuard detected{' '}
+                    Video Analysis Complete: RoadGuard identified{' '}
                     <span className="text-amber-400 font-mono tabular-nums">
                       {videoResult.potholeCount}
                     </span>{' '}
-                    roadway {videoResult.potholeCount === 1 ? 'issue' : 'issues'}.
+                    unique roadway {videoResult.potholeCount === 1 ? 'pothole' : 'potholes'}.
                   </h4>
                 </div>
                 <span className="text-xs text-amber-400 font-semibold uppercase tracking-wider">
@@ -461,7 +472,9 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
                   <span className="text-slate-400 block mb-0.5">Road Surface Quality</span>
                   <span className="text-slate-200 font-mono tabular-nums">
-                    Index {videoResult.roadConditionIndex}/100
+                    {videoResult.roadConditionIndex != null
+                      ? `Index ${videoResult.roadConditionIndex}/100`
+                      : 'Not computed'}
                   </span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
@@ -471,6 +484,33 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
                   </span>
                 </div>
               </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] text-slate-400">
+                <span>
+                  Unique count:{' '}
+                  <strong className="text-slate-200 font-mono">{videoResult.potholeCount}</strong>
+                </span>
+                <span>
+                  Raw frame detections:{' '}
+                  <span className="font-mono text-slate-300">
+                    {videoResult.analytics?.totalDetections ??
+                      videoResult.rawDetectionCount ??
+                      videoResult.potholeCount}
+                  </span>{' '}
+                  <span className="text-slate-500">(before cross-frame tracking)</span>
+                </span>
+              </div>
+
+              {videoResult.limitations && videoResult.limitations.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                  {videoResult.limitations.map((limitation, idx) => (
+                    <p key={`video-limitation-${idx}`} className="flex items-start gap-1.5">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
+                      <span>{limitation}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

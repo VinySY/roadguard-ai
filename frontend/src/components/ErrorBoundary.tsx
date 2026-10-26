@@ -42,6 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error?.message || 'A client-side rendering exception was captured.'}
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
               className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-lg transition-colors shadow-lg shadow-amber-500/20"
             >

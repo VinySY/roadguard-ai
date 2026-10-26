@@ -21,6 +21,7 @@ import {
   InspectionRecord, 
   DetectionRecord 
 } from '../services/api';
+import { resolveInspectionUniqueCount } from '../services/detectionCounts';
 
 interface ReportsViewProps {
   latestResult: DetectionResult | null;
@@ -210,7 +211,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       </h4>
 
                       <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-850">
-                        <span>{insp.detection_count} defects</span>
+                        <span>{resolveInspectionUniqueCount(insp)} unique defects</span>
                         <span>{new Date(insp.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
@@ -259,11 +260,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 {/* Key Dossier Metrics */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase">Defects Detected</span>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase">Unique Potholes</span>
                     <div className="text-2xl font-black text-amber-400 font-mono mt-1">
-                      {selectedInspection.detection_count}
+                      {resolveInspectionUniqueCount(selectedInspection)}
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono">Pothole cavities</span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {selectedInspection.detection_count} raw detection{selectedInspection.detection_count === 1 ? '' : 's'}
+                    </span>
                   </div>
 
                   <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">

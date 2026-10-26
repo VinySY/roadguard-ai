@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { NavigationTab, PotholeSeverity } from '../types/detection';
 import { fetchRoadIssues, fetchInspections, RoadIssueRecord, InspectionRecord } from '../services/api';
+import { resolveInspectionUniqueCount } from '../services/detectionCounts';
 
 interface MapViewProps {
   onNavigate: (tab: NavigationTab) => void;
@@ -122,13 +123,13 @@ export const MapView: React.FC<MapViewProps> = ({ onNavigate }) => {
             id: `insp-${insp.id}`,
             numericId: insp.id,
             type: 'inspection',
-            category: `AI Scan (${insp.detection_count} Cavities)`,
+            category: `AI Scan (${resolveInspectionUniqueCount(insp)} unique potholes)`,
             description: `Automated inspection scan of ${insp.image_filename} with ${insp.damage_percentage}% damaged road surface area.`,
             severity: sev,
             latitude: lat,
             longitude: lng,
             createdAt: insp.created_at,
-            detectionCount: insp.detection_count,
+            detectionCount: resolveInspectionUniqueCount(insp),
             overallRisk: insp.overall_risk,
           });
         }

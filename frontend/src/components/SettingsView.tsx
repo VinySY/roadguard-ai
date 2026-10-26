@@ -50,7 +50,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-850">
               <div className="space-y-0.5">
                 <span className="font-semibold text-white block">Render Polygon Masks by Default</span>
-                <span className="text-slate-400 block">Show YOLOv11 segmentation mask fills</span>
+                <span className="text-slate-400 block">Show RF-DETR segmentation mask fills</span>
               </div>
               <input
                 type="checkbox"
@@ -141,7 +141,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-850 flex items-center justify-between">
               <span className="text-slate-400">Roboflow Model Link:</span>
               <span className={serverHealth?.modelReachable ? 'text-emerald-400' : 'text-amber-400'}>
-                {serverHealth?.modelReachable ? 'YOLOv11 Instance Seg Active' : 'Checking API Key...'}
+                {serverHealth?.modelReachable ? 'RF-DETR Instance Seg Active' : 'Checking API Key...'}
               </span>
             </div>
 
@@ -159,7 +159,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span>About RoadGuard AI</span>
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              RoadGuard AI combines high-resolution road photography with hosted Roboflow YOLOv11 instance segmentation. Built for public works departments, roadway inspectors, and citizens advocating for safer streets.
+              RoadGuard AI combines high-resolution road photography with hosted Roboflow RF-DETR instance segmentation. Built for public works departments, roadway inspectors, and citizens advocating for safer streets.
             </p>
           </div>
         </div>

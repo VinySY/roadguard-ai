@@ -5,6 +5,7 @@ export interface InspectionRecord {
   id: number;
   image_filename: string;
   image_path: string | null;
+  image_url?: string | null;
   image_width: number;
   image_height: number;
   detection_count: number;
@@ -50,6 +51,7 @@ export interface RoadIssueRecord {
   severity: 'minor' | 'moderate' | 'high' | 'critical';
   status: 'Reported' | 'In Inspection' | 'Scheduled for Repair' | 'Resolved';
   evidence_path: string | null;
+  evidence_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +69,7 @@ export interface CreateRoadIssuePayload {
   latitude?: number | null;
   longitude?: number | null;
   evidence_path?: string | null;
+  evidenceFile?: File | Blob | null;
 }
 
 /**
@@ -152,11 +155,31 @@ export async function fetchRoadIssues(status?: string, limit = 50, offset = 0): 
  * Create a new road issue in MySQL.
  */
 export async function createRoadIssue(payload: CreateRoadIssuePayload): Promise<RoadIssueRecord> {
-  const res = await fetch(getApiUrl('/api/issues'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const hasFile = Boolean(payload.evidenceFile);
+  let res: Response;
+
+  if (hasFile && payload.evidenceFile) {
+    const formData = new FormData();
+    formData.append('category', payload.category);
+    formData.append('description', payload.description);
+    formData.append('severity', payload.severity);
+    if (payload.status) formData.append('status', payload.status);
+    if (payload.latitude != null) formData.append('latitude', String(payload.latitude));
+    if (payload.longitude != null) formData.append('longitude', String(payload.longitude));
+    const fileName = payload.evidenceFile instanceof File ? payload.evidenceFile.name : 'complaint.jpg';
+    formData.append('evidence', payload.evidenceFile, fileName);
+    res = await fetch(getApiUrl('/api/issues'), {
+      method: 'POST',
+      body: formData,
+    });
+  } else {
+    const { evidenceFile: _ignored, ...jsonPayload } = payload;
+    res = await fetch(getApiUrl('/api/issues'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(jsonPayload),
+    });
+  }
 
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;

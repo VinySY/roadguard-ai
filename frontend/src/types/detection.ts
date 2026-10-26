@@ -18,6 +18,10 @@ export interface PotholePrediction {
   area?: number;
   areaRatio?: number;
   severity?: PotholeSeverity;
+  /** Stable cross-frame identity assigned by the tracker. */
+  trackId?: string;
+  trackHits?: number;
+  trackConfirmed?: boolean;
 }
 
 export interface ImageMetadata {
@@ -26,7 +30,14 @@ export interface ImageMetadata {
 }
 
 export interface DetectionAnalytics {
+  /** Unique, user-facing count. */
   totalDetected: number;
+  uniquePotholeCount?: number;
+  rawDetectionCount?: number;
+  rawTotalDetected?: number;
+  rawPredictionCount?: number;
+  candidateDetectionCount?: number;
+  duplicatePredictionsRemoved?: number;
   maxConfidence: number;
   damagePercentage: number;
   overallRiskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -65,6 +76,10 @@ export interface ServerHealth {
     workspace: string;
     project: string;
     version: string;
+    /** Deployed model ID actually used for inference. */
+    modelId?: string;
+    /** Roboflow task type, e.g. instance-segmentation. */
+    taskType?: string;
     details?: unknown;
   };
 }
@@ -102,15 +117,60 @@ export interface VideoProcessingInfo {
   totalFrames: number;
   processedFrames: number;
   failedFrames: number;
+  maxFrames?: number;
+  estimatedFrames?: number;
 }
 
 export interface VideoAnalytics {
+  /** Raw frame-level detections before cross-frame tracking (debug/audit). */
   totalDetections: number;
+  /** Final unique pothole count. */
   uniquePotholeCount: number;
+  /** Alias of uniquePotholeCount for consistency with the image endpoint. */
+  totalDetected?: number;
+  rawDetectionCount?: number;
+  rawPredictionCount?: number;
+  candidateDetectionCount?: number;
+  frameDetectionCount?: number;
+  duplicatePredictionsRemoved?: number;
+  confirmedPotholeCount?: number;
+  tentativePotholeCount?: number;
+  totalTracks?: number;
   framesWithDetections: number;
   maxConfidence: number;
   avgDamagePercentage: number;
   overallRiskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  worstFrameRiskLevel?: string;
+}
+
+export interface VideoTrackingParameters {
+  matchIouThreshold: number;
+  maxCenterDistanceFactor: number;
+  maxMissedFrames: number;
+  minHits: number;
+  minScaleRatio: number;
+  maxScaleRatio: number;
+  maskIouThreshold: number;
+  resolvedMinHits: number;
+}
+
+export interface VideoTrackSummary {
+  trackId: string;
+  hits: number;
+  missed: number;
+  confirmed: boolean;
+  firstFrameIndex: number;
+  lastFrameIndex: number;
+  firstTimestamp: number;
+  lastTimestamp: number;
+  averageConfidence: number;
+  maxConfidence: number;
+  bbox: { x: number; y: number; width: number; height: number };
+}
+
+export interface VideoQuality {
+  level: 'high' | 'medium' | 'low';
+  reasons: string[];
 }
 
 export interface FrameDetectionResult {
@@ -132,6 +192,16 @@ export interface VideoDetectionResponse {
   processing: VideoProcessingInfo;
   analytics: VideoAnalytics;
   frames: FrameDetectionResult[];
+  /** One representative detection per confirmed unique pothole. */
+  uniqueDetections?: PotholePrediction[];
+  tracking?: {
+    parameters: VideoTrackingParameters;
+    confirmedTracks: VideoTrackSummary[];
+    tentativeTracks: VideoTrackSummary[];
+  };
+  quality?: VideoQuality;
+  limitations?: string[];
+  warnings?: string[];
   errors?: { frameIndex: number; error: string }[];
   persistence?: {
     saved: boolean;

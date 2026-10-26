@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { getApiUrl } from '../../config/api';
+import potholeSample from '../../assets/images/roadguard_pothole_evidence_1790958622590.jpg';
 
 interface ImageDetectorProps {
   onDetectionComplete?: (result: DetectionResult) => void;
@@ -154,10 +155,19 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
       {!imagePreview ? (
         <div className="space-y-4">
           <div
+            role="button"
+            tabIndex={0}
+            aria-label="Upload a road photo for AI analysis"
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-slate-700 hover:border-amber-500/70 rounded-2xl p-8 text-center bg-slate-900/50 hover:bg-slate-900/80 transition-all cursor-pointer flex flex-col items-center justify-center min-h-[240px]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className="flex min-h-[240px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900/50 p-8 text-center transition-colors hover:border-amber-500/70 hover:bg-slate-900/80"
           >
             <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4">
               <UploadCloud className="w-7 h-7" />
@@ -168,20 +178,14 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
             <p className="text-xs text-slate-400 max-w-sm mb-4">
               Drag and drop road surface photo, or click to browse. Supports JPG, PNG, WebP up to 25MB.
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm"
-              >
-                Browse Files
-              </button>
-            </div>
+            <span className="rg-btn rg-btn-primary">Browse files</span>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               onChange={handleFileChange}
               className="hidden"
+              aria-label="Choose a road photo"
             />
           </div>
 
@@ -189,7 +193,7 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
           <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2">
             <div className="flex items-center gap-2 text-xs text-slate-300 font-medium">
               <ImageIcon className="w-4 h-4 text-amber-400" />
-              <span>Or test with verified dataset sample images:</span>
+              <span>Or test with dataset sample images:</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {sampleList.length > 0 ? (
@@ -211,14 +215,13 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
               ) : (
                 <button
                   type="button"
-                  onClick={() =>
-                    handleSelectSample(
-                      '/src/assets/images/roadguard_pothole_evidence_1790958622590.jpg'
-                    )
-                  }
-                  className="p-2 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-left transition-colors flex items-center gap-2"
+                  onClick={() => handleSelectSample(potholeSample)}
+                  className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/80 p-2 text-left transition-colors hover:bg-slate-700/80"
                 >
-                  <span className="text-[11px] text-slate-200 font-medium">Pavement Evidence Sample</span>
+                  <span className="h-8 w-8 shrink-0 overflow-hidden rounded border border-slate-700 bg-slate-950">
+                    <img src={potholeSample} alt="" className="h-full w-full object-cover" />
+                  </span>
+                  <span className="text-[11px] font-medium text-slate-200">Pavement evidence sample</span>
                 </button>
               )}
             </div>
@@ -380,7 +383,8 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
                   step="5"
                   value={confidenceFilter}
                   onChange={(e) => setConfidenceFilter(parseInt(e.target.value, 10))}
-                  className="w-20 sm:w-24 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  className="h-1.5 w-20 cursor-pointer rounded-lg bg-slate-800 accent-amber-500 sm:w-24"
+                  aria-label="Minimum detection confidence"
                 />
                 <span className="font-mono text-slate-200 text-[11px] tabular-nums">
                   {confidenceFilter}%
@@ -390,24 +394,27 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
 
             {!detectionResult ? (
               <button
+                type="button"
                 onClick={() => runDetection()}
                 disabled={isAnalyzing}
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg transition-colors shadow-md disabled:opacity-50"
+                className="rg-btn rg-btn-primary"
               >
-                <Sparkles className="w-4 h-4" />
-                {isAnalyzing ? 'Analyzing...' : 'Run RoadGuard Detection'}
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                {isAnalyzing ? 'Analyzing…' : 'Run RoadGuard detection'}
               </button>
             ) : (
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => runDetection()}
                   disabled={isAnalyzing}
-                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg"
+                  className="rg-btn rg-btn-secondary rg-btn-sm"
                 >
                   Re-analyze
                 </button>
                 {onProceedToReport && (
                   <button
+                    type="button"
                     onClick={() =>
                       onProceedToReport({
                         ...detectionResult,
@@ -415,10 +422,10 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
                         potholeCount: displayedCount,
                       })
                     }
-                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                    className="rg-btn rg-btn-primary rg-btn-sm"
                   >
-                    <span>Proceed with Report</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>Proceed with report</span>
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -453,7 +460,7 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
                         <span className="text-amber-400 font-mono tabular-nums">
                           {displayedCount}
                         </span>{' '}
-                        {displayedCount === 1 ? 'pothole' : 'potholes'}.
+                        unique {displayedCount === 1 ? 'pothole' : 'potholes'}.
                       </h4>
                     </>
                   ) : (
@@ -496,15 +503,35 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
                   <span className="text-slate-400 block mb-0.5">Pavement Surface Quality</span>
                   <span className="text-slate-200 font-mono tabular-nums">
-                    Index {displayedCount === 0 ? 98 : detectionResult.roadConditionIndex || 50}/100
+                    {displayedCount === 0
+                      ? 'No defects detected'
+                      : `Index ${detectionResult.roadConditionIndex ?? '—'}/100`}
                   </span>
                 </div>
               </div>
+
+              {(detectionResult.warnings?.length || detectionResult.limitations?.length) ? (
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                  {detectionResult.warnings?.map((warning, idx) => (
+                    <p key={`warning-${idx}`} className="flex items-start gap-1.5">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
+                      <span>{warning}</span>
+                    </p>
+                  ))}
+                  {detectionResult.limitations?.map((limitation, idx) => (
+                    <p key={`limitation-${idx}`} className="flex items-start gap-1.5">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0 text-slate-500" />
+                      <span>{limitation}</span>
+                    </p>
+                  ))}
+                </div>
+              ) : null}
 
               {/* Technical Detection Parameters */}
               {(role === 'worker' || role === 'inspector' || showTechnicalDetails) && (
                 <div className="pt-2">
                   <button
+                    type="button"
                     onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
                     className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 font-medium"
                   >
@@ -529,9 +556,21 @@ export const ImageDetector: React.FC<ImageDetectorProps> = ({
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Detections Rendered:</span>
+                        <span>Unique Potholes:</span>
                         <span className="text-slate-200 tabular-nums">
-                          {displayedCount} of {detectionResult.boxes.length} detected
+                          {displayedCount} shown of {detectionResult.boxes.length} identified
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Raw Model Predictions:</span>
+                        <span className="text-slate-200 tabular-nums">
+                          {detectionResult.analytics?.rawDetectionCount ?? detectionResult.boxes.length}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Duplicates Merged:</span>
+                        <span className="text-slate-200 tabular-nums">
+                          {detectionResult.analytics?.duplicatePredictionsRemoved ?? 0}
                         </span>
                       </div>
                       <div className="flex justify-between">

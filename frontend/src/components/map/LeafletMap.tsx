@@ -3,7 +3,13 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { RoadIssue, LocationCoordinates, UserRole, SeverityLevel } from '../../types';
 import { getCurrentBrowserLocation, DEFAULT_MUNICIPAL_CENTER, calculateDistanceKm } from '../../services/location';
-import { Crosshair, MapPin, AlertCircle, CheckCircle2, ShieldAlert, Navigation, Layers, Compass } from 'lucide-react';
+import {
+  AVAILABLE_MAP_STYLES,
+  DEFAULT_MAP_STYLE,
+  MAP_STYLES,
+  MapStyleId,
+} from '../../config/map';
+import { Crosshair, AlertCircle, Navigation, Compass, Layers, MapPin } from 'lucide-react';
 
 interface LeafletMapProps {
   issues: RoadIssue[];
@@ -34,13 +40,16 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  const pickMarkerRef = useRef<L.Marker | null>(null);
+  const tileErrorCountRef = useRef(0);
 
   const [locationStatus, setLocationStatus] = useState<'idle' | 'locating' | 'granted' | 'denied' | 'unavailable'>(
     userLocation ? 'granted' : 'idle'
   );
   const [filterSeverity, setFilterSeverity] = useState<SeverityLevel | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [activeLayer, setActiveLayer] = useState<'dark' | 'streets'>('dark');
+  const [activeLayer, setActiveLayer] = useState<MapStyleId>(DEFAULT_MAP_STYLE);
+  const [layerFallbackNotice, setLayerFallbackNotice] = useState<string | null>(null);
 
   // Filter issues based on role:
   // - Worker: only assigned issues
@@ -74,15 +83,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       zoomControl: false,
     });
 
-    // High quality CartoDB Dark Matter tiles matching RoadGuard dark palette
-    const tileLayerUrl =
-      activeLayer === 'dark'
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-    const tiles = L.tileLayer(tileLayerUrl, {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      maxZoom: 19,
+    const initialStyle = MAP_STYLES[DEFAULT_MAP_STYLE];
+    L.tileLayer(initialStyle.url, {
+      attribution: initialStyle.attribution,
+      maxZoom: initialStyle.maxZoom,
+      crossOrigin: true,
     }).addTo(map);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -95,6 +100,20 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     if (allowPickLocation) {
       map.on('click', (e) => {
         const { lat, lng } = e.latlng;
+
+        if (pickMarkerRef.current) {
+          pickMarkerRef.current.setLatLng([lat, lng]);
+        } else {
+          pickMarkerRef.current = L.marker([lat, lng], {
+            icon: L.divIcon({
+              className: 'roadguard-temp-pin',
+              html: '<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;background:#f59e0b;transform:rotate(-45deg);border:2px solid #0f172a;box-shadow:0 4px 12px rgba(0,0,0,.4)"></div>',
+              iconSize: [26, 26],
+              iconAnchor: [13, 26],
+            }),
+          }).addTo(map);
+        }
+
         if (onPickLocation) {
           onPickLocation({
             lat,
@@ -112,7 +131,9 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   }, []);
 
-  // Update tiles if layer changes
+  // Update tiles when the user switches map style. Streets remains the
+  // default; the optional CARTO layer automatically falls back to Streets if
+  // its tiles fail, so a bad configuration can never leave a blank map.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -123,15 +144,23 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       }
     });
 
-    const tileLayerUrl =
-      activeLayer === 'dark'
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const style = MAP_STYLES[activeLayer] || MAP_STYLES[DEFAULT_MAP_STYLE];
+    tileErrorCountRef.current = 0;
+    setLayerFallbackNotice(null);
 
-    L.tileLayer(tileLayerUrl, {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      maxZoom: 19,
+    const tiles = L.tileLayer(style.url, {
+      attribution: style.attribution,
+      maxZoom: style.maxZoom,
+      crossOrigin: true,
     }).addTo(map);
+
+    tiles.on('tileerror', () => {
+      tileErrorCountRef.current += 1;
+      if (style.optional && tileErrorCountRef.current >= 3 && activeLayer !== 'streets') {
+        setLayerFallbackNotice('CARTO tiles are unavailable — switched to Streets.');
+        setActiveLayer('streets');
+      }
+    });
   }, [activeLayer]);
 
   // Handle explicit "Use My Location"
@@ -271,7 +300,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           ${distanceStr ? `<p class="text-[10px] font-mono text-blue-600 mb-2">📍 ${distanceStr}</p>` : ''}
           <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
             <span class="text-slate-500">Severity: <strong class="capitalize" style="color: ${severityColor}">${issue.severity}</strong></span>
-            <button id="btn-view-${issue.id}" class="text-amber-600 hover:text-amber-700 font-semibold text-[11px]">Details &rarr;</button>
+            <button type="button" id="btn-view-${issue.id}" class="text-amber-600 hover:text-amber-700 font-semibold text-[11px]">Details &rarr;</button>
           </div>
         </div>
       `;
@@ -296,89 +325,104 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   }, [visibleIssues, selectedIssueId, userLocation, onSelectIssue]);
 
   return (
-    <div className="roadguard-map-container relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 shadow-sm [isolation:isolate] z-0">
+    <div className="roadguard-map-container relative z-0 overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-950 shadow-sm [isolation:isolate]">
       {/* Map Header / Location Bar */}
-      <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+      <div className="pointer-events-none absolute left-2.5 right-2.5 top-2.5 z-10 flex flex-wrap items-center justify-between gap-2 sm:left-3 sm:right-3 sm:top-3">
         {/* Location Status Badge / Action */}
-        <div className="pointer-events-auto flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs shadow-md max-w-full">
+        <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/95 px-2.5 py-1.5 text-xs shadow-md backdrop-blur-md sm:px-3">
           {locationStatus === 'granted' && userLocation ? (
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></span>
-              <span className="text-slate-700 dark:text-slate-300 font-medium shrink-0">Location Enabled</span>
-              <span className="text-slate-400 dark:text-slate-600">·</span>
-              <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px] truncate">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500"></span>
+              <span className="shrink-0 font-medium text-slate-300">Location enabled</span>
+              <span className="text-slate-600" aria-hidden="true">·</span>
+              <span className="truncate font-mono text-[11px] text-slate-400">
                 {userLocation.street || userLocation.area || `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}`}
               </span>
             </div>
           ) : locationStatus === 'denied' ? (
-            <div className="flex items-center gap-2 text-rose-500 dark:text-rose-400 text-xs">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <div className="flex items-center gap-2 text-xs text-rose-400">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">Location access blocked.</span>
               <button
+                type="button"
                 onClick={handleRequestLocation}
-                className="underline hover:text-rose-600 dark:hover:text-rose-300 font-medium ml-1 shrink-0 cursor-pointer"
+                className="ml-1 shrink-0 font-medium underline hover:text-rose-300"
               >
-                Try Again
+                Try again
               </button>
             </div>
           ) : locationStatus === 'unavailable' ? (
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <div className="flex items-center gap-2 text-xs text-amber-400">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>Location unavailable.</span>
               <button
+                type="button"
                 onClick={handleRequestLocation}
-                className="underline hover:text-amber-700 dark:hover:text-amber-300 font-medium ml-1 shrink-0 cursor-pointer"
+                className="ml-1 shrink-0 font-medium underline hover:text-amber-300"
               >
                 Retry
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Compass className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span className="text-slate-700 dark:text-slate-300 text-xs hidden xs:inline sm:inline">General View (Default City Center)</span>
-              <span className="text-slate-700 dark:text-slate-300 text-xs xs:hidden sm:hidden">City Center</span>
+              <Compass className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+              <span className="hidden text-xs text-slate-300 sm:inline">General view (default city centre)</span>
+              <span className="text-xs text-slate-300 sm:hidden">City centre</span>
               <button
+                type="button"
                 onClick={handleRequestLocation}
                 disabled={locationStatus === 'locating'}
-                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-2 sm:px-2.5 py-1 rounded-lg text-xs transition-colors shadow-sm ml-1 shrink-0 cursor-pointer disabled:opacity-50"
+                className="rg-btn rg-btn-primary rg-btn-sm ml-1 shrink-0"
               >
-                <Crosshair className="w-3.5 h-3.5" />
-                <span>{locationStatus === 'locating' ? 'Locating...' : 'Use My Location'}</span>
+                <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{locationStatus === 'locating' ? 'Locating…' : 'Use my location'}</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Layer Toggle */}
-        <div className="pointer-events-auto flex items-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-0.5 sm:p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs shadow-md shrink-0">
-          <button
-            onClick={() => setActiveLayer('dark')}
-            className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-              activeLayer === 'dark' ? 'bg-slate-900 text-amber-400 shadow-sm dark:bg-slate-800' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            Dark Carto
-          </button>
-          <button
-            onClick={() => setActiveLayer('streets')}
-            className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-              activeLayer === 'streets' ? 'bg-slate-900 text-amber-400 shadow-sm dark:bg-slate-800' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            Streets
-          </button>
+        {/* Basemap style switcher — Streets is always available */}
+        <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-900/95 p-1 text-xs shadow-md backdrop-blur-md">
+          <span className="hidden items-center gap-1 px-1 text-[10px] font-medium uppercase tracking-wider text-slate-500 sm:inline-flex">
+            <Layers className="h-3 w-3" aria-hidden="true" />
+            Map
+          </span>
+          {AVAILABLE_MAP_STYLES.map((style) => (
+            <button
+              key={style.id}
+              type="button"
+              onClick={() => setActiveLayer(style.id)}
+              aria-pressed={activeLayer === style.id}
+              title={style.description}
+              className={`cursor-pointer rounded-lg px-2 py-1 text-xs font-medium transition-colors sm:px-2.5 ${
+                activeLayer === style.id
+                  ? 'bg-slate-800 text-amber-400 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-100'
+              }`}
+            >
+              {style.label}
+            </button>
+          ))}
         </div>
       </div>
 
+      {layerFallbackNotice && (
+        <div className="absolute right-3 top-14 z-20 flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-slate-900/95 px-2.5 py-1.5 text-[11px] text-amber-300 shadow-lg backdrop-blur-md">
+          <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+          {layerFallbackNotice}
+        </div>
+      )}
+
       {/* Role-specific overlay filters for Inspector */}
       {role === 'inspector' && (
-        <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 right-2.5 sm:right-auto z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs shadow-lg flex flex-wrap items-center gap-2 max-w-[calc(100%-1.25rem)] sm:max-w-md">
+        <div className="absolute bottom-2.5 left-2.5 right-2.5 z-10 flex max-w-[calc(100%-1.25rem)] flex-wrap items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur-md sm:bottom-3 sm:left-3 sm:right-auto sm:max-w-md sm:py-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-medium uppercase tracking-wider">Sev:</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 sm:text-[11px]">Sev:</span>
             <select
               value={filterSeverity}
-              onChange={(e) => setFilterSeverity(e.target.value as any)}
-              className="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              onChange={(e) => setFilterSeverity(e.target.value as typeof filterSeverity)}
+              aria-label="Filter by severity"
+              className="rg-select !w-auto !px-2 !py-1 text-xs"
             >
               <option value="all">All</option>
               <option value="critical">Critical</option>
@@ -389,11 +433,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-medium uppercase tracking-wider">Status:</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 sm:text-[11px]">Status:</span>
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 text-xs rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              aria-label="Filter by status"
+              className="rg-select !w-auto !px-2 !py-1 text-xs"
             >
               <option value="all">All</option>
               <option value="reported">Reported</option>
@@ -403,7 +448,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             </select>
           </div>
 
-          <span className="text-slate-500 dark:text-slate-400 font-mono text-[10px] sm:text-[11px] tabular-nums ml-auto sm:ml-1">
+          <span className="ml-auto font-mono text-[10px] tabular-nums text-slate-400 sm:ml-1 sm:text-[11px]">
             {visibleIssues.length}/{issues.length}
           </span>
         </div>
@@ -411,21 +456,21 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       {/* Worker Navigation Quick Bar */}
       {role === 'worker' && (
-        <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-1.5 sm:py-2 rounded-xl border border-amber-500/30 text-xs shadow-lg flex items-center gap-2">
-          <Navigation className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
-          <span className="text-slate-800 dark:text-slate-200 font-medium text-xs">Route View:</span>
-          <span className="text-amber-600 dark:text-amber-400 font-mono font-medium">
-            {visibleIssues.length} {visibleIssues.length === 1 ? 'Site' : 'Sites'}
+        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-slate-900/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur-md sm:bottom-3 sm:left-3 sm:py-2">
+          <Navigation className="h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
+          <span className="text-xs font-medium text-slate-200">Route view:</span>
+          <span className="font-mono font-medium text-amber-400">
+            {visibleIssues.length} {visibleIssues.length === 1 ? 'site' : 'sites'}
           </span>
         </div>
       )}
 
       {/* Citizen Distance Bar */}
       {role === 'citizen' && (
-        <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs shadow-lg text-slate-700 dark:text-slate-300 flex items-center gap-2">
+        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/95 px-3 py-1.5 text-xs text-slate-300 shadow-lg backdrop-blur-md sm:bottom-3 sm:left-3">
           <span>Road hazards</span>
-          <span className="text-slate-400 dark:text-slate-500">·</span>
-          <span className="text-amber-600 dark:text-amber-400 font-mono font-medium">{visibleIssues.length} nearby</span>
+          <span className="text-slate-500" aria-hidden="true">·</span>
+          <span className="font-mono font-medium text-amber-400">{visibleIssues.length} nearby</span>
         </div>
       )}
 

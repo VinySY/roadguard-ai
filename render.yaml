@@ -22,6 +22,8 @@ services:
         value: pothole-detection-itsgr
       - key: ROBOFLOW_VERSION
         value: "1"
+      - key: ROBOFLOW_MODEL_ID
+        value: govindsy43564-gmail-com/pothole-detection-itsgr-1-rfdetr-seg-medium-t3
       - key: DB_HOST
         sync: false
       - key: DB_PORT

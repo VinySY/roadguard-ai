@@ -1,7 +1,9 @@
 import React from 'react';
 import { RoadIssue, User } from '../../types';
 import { storage, DEMO_USERS } from '../../services/storage';
-import { UserCheck, MapPin, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react';
+import { UserCheck, MapPin, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { PageHeader } from '../common/PageHeader';
+import { EmptyState } from '../common/EmptyState';
 
 interface InspectorAssignmentsProps {
   issues: RoadIssue[];
@@ -42,18 +44,22 @@ export const InspectorAssignments: React.FC<InspectorAssignmentsProps> = ({
 
   return (
     <div className="space-y-6 w-full">
-      {/* Header */}
-      <div className="pb-4 border-b border-slate-800">
-        <h2 className="text-xl font-bold text-slate-100">Crew Workload & Dispatch Assignments</h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Distribute incoming road repair tickets across quick-response municipal asphalt crews.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow={
+          <>
+            <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            Dispatch &amp; crew workload
+          </>
+        }
+        icon={<UserCheck className="h-4 w-4" aria-hidden="true" />}
+        title="Crew workload & dispatch"
+        description="Distribute incoming road repair tickets across quick-response municipal asphalt crews."
+      />
 
-      {/* Field Crew Capacity Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Field crew capacity */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {workers.map((worker) => (
-          <div key={worker.id} className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+          <div key={worker.id} className="rg-panel space-y-3 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-amber-400">
@@ -86,16 +92,17 @@ export const InspectorAssignments: React.FC<InspectorAssignmentsProps> = ({
         </div>
 
         {unassignedIssues.length === 0 ? (
-          <div className="p-10 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-2">
-            <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
-            <p className="text-xs text-slate-200 font-medium">All active road issues are assigned to field crews.</p>
-          </div>
+          <EmptyState
+            icon={CheckCircle2}
+            title="All active road issues are assigned"
+            description="Every open ticket has a field crew attached. New reports appear here for dispatch."
+          />
         ) : (
           <div className="space-y-3">
             {unassignedIssues.map((issue) => (
               <div
                 key={issue.id}
-                className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="rg-card flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center"
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -123,7 +130,8 @@ export const InspectorAssignments: React.FC<InspectorAssignmentsProps> = ({
                         handleQuickAssign(issue.id, w.id, w.name);
                       }
                     }}
-                    className="flex-1 sm:flex-initial bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="rg-select flex-1 !py-2 text-xs sm:flex-initial"
+                    aria-label={`Assign ${issue.referenceNumber} to a crew`}
                   >
                     <option value="" disabled>
                       Assign to Crew...
@@ -136,8 +144,9 @@ export const InspectorAssignments: React.FC<InspectorAssignmentsProps> = ({
                   </select>
 
                   <button
+                    type="button"
                     onClick={() => onOpenIssue(issue)}
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg shrink-0 transition-colors"
+                    className="rg-btn rg-btn-secondary rg-btn-sm shrink-0"
                   >
                     View
                   </button>

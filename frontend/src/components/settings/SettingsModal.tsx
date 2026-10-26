@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Municipality } from '../../types';
 import { storage } from '../../services/storage';
-import { X, Building2, Plus, Save, CheckCircle2, ShieldCheck, Mail } from 'lucide-react';
+import { X, Building2, Save, CheckCircle2 } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,12 +17,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [municipalities, setMunicipalities] = useState<Municipality[]>(storage.getMunicipalities());
   const [savedNotice, setSavedNotice] = useState(false);
 
+  // Escape closes the settings dialog.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
-  const handleUpdateMuni = (id: string, field: keyof Municipality, value: any) => {
-    setMunicipalities((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, [field]: value } : m))
-    );
+  const handleUpdateMuni = (id: string, field: keyof Municipality, value: string | number) => {
+    setMunicipalities((prev) => prev.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
   };
 
   const handleSaveAll = () => {
@@ -33,111 +41,149 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[85vh]">
+    <div className="rg-animate-fade fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        aria-describedby="settings-modal-description"
+        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 text-slate-100 shadow-2xl"
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
-              <Building2 className="w-4 h-4" />
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-5 py-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10 text-amber-400">
+              <Building2 className="h-4 w-4" aria-hidden="true" />
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-100">Municipal Dispatch Configuration</h3>
-              <p className="text-xs text-slate-400">Configure Demo Municipalities & Emergency Routing SLAs</p>
+            <div className="min-w-0">
+              <h3 id="settings-modal-title" className="text-sm font-semibold text-slate-100">
+                Municipal dispatch configuration
+              </h3>
+              <p id="settings-modal-description" className="text-xs text-slate-400">
+                Demo authorities, receiving emails, and response targets
+              </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-          >
-            <X className="w-5 h-5" />
+          <button type="button" onClick={onClose} className="rg-icon-btn" aria-label="Close settings">
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-4">
-          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300">
-            <strong>Configurable Demo Mode:</strong> You can edit municipal names, official receiving emails, and response SLAs below. In live production deployment, these bind to real municipal API gateways.
-          </div>
+        <div className="space-y-4 overflow-y-auto p-5 sm:p-6">
+          <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-200">
+            <strong className="font-semibold text-amber-300">Demo configuration.</strong> Names, receiving
+            emails, and response targets below are editable local demo values. A live deployment would bind
+            these to real municipal API gateways.
+          </p>
 
           {savedNotice && (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>Configuration successfully saved to local storage.</span>
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Configuration saved to local storage.</span>
             </div>
           )}
 
           <div className="space-y-4">
-            {municipalities.map((muni) => (
-              <div
-                key={muni.id}
-                className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-amber-400">{muni.id}</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                    Demo Simulated Authority
-                  </span>
-                </div>
+            {municipalities.map((muni) => {
+              const fieldId = (field: string) => `muni-${muni.id}-${field}`;
+              return (
+                <fieldset
+                  key={muni.id}
+                  className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4"
+                >
+                  <legend className="sr-only">{muni.name || muni.id}</legend>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Authority Name</label>
-                    <input
-                      type="text"
-                      value={muni.name}
-                      onChange={(e) => handleUpdateMuni(muni.id, 'name', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200"
-                    />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-xs font-bold text-amber-400">{muni.id}</span>
+                    <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+                      Demo simulated authority
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Dispatch Email</label>
-                    <input
-                      type="email"
-                      value={muni.contactEmail}
-                      onChange={(e) => handleUpdateMuni(muni.id, 'contactEmail', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200 font-mono"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor={fieldId('name')}
+                        className="mb-1 block text-[11px] text-slate-400"
+                      >
+                        Authority name
+                      </label>
+                      <input
+                        id={fieldId('name')}
+                        type="text"
+                        value={muni.name}
+                        onChange={(e) => handleUpdateMuni(muni.id, 'name', e.target.value)}
+                        className="rg-input !py-1.5"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Department Wing</label>
-                    <input
-                      type="text"
-                      value={muni.department}
-                      onChange={(e) => handleUpdateMuni(muni.id, 'department', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200"
-                    />
-                  </div>
+                    <div>
+                      <label
+                        htmlFor={fieldId('email')}
+                        className="mb-1 block text-[11px] text-slate-400"
+                      >
+                        Dispatch email
+                      </label>
+                      <input
+                        id={fieldId('email')}
+                        type="email"
+                        value={muni.contactEmail}
+                        onChange={(e) => handleUpdateMuni(muni.id, 'contactEmail', e.target.value)}
+                        className="rg-input !py-1.5 font-mono"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">SLA Target (Hours)</label>
-                    <input
-                      type="number"
-                      value={muni.slaHours}
-                      onChange={(e) => handleUpdateMuni(muni.id, 'slaHours', Number(e.target.value))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200 font-mono"
-                    />
+                    <div>
+                      <label
+                        htmlFor={fieldId('department')}
+                        className="mb-1 block text-[11px] text-slate-400"
+                      >
+                        Department wing
+                      </label>
+                      <input
+                        id={fieldId('department')}
+                        type="text"
+                        value={muni.department}
+                        onChange={(e) => handleUpdateMuni(muni.id, 'department', e.target.value)}
+                        className="rg-input !py-1.5"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor={fieldId('sla')}
+                        className="mb-1 block text-[11px] text-slate-400"
+                      >
+                        Response target (hours)
+                      </label>
+                      <input
+                        id={fieldId('sla')}
+                        type="number"
+                        min={1}
+                        value={muni.slaHours}
+                        onChange={(e) =>
+                          handleUpdateMuni(muni.id, 'slaHours', Number(e.target.value))
+                        }
+                        className="rg-input !py-1.5 font-mono"
+                      />
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                </fieldset>
+              );
+            })}
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg"
-            >
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-800 pt-3">
+            <button type="button" onClick={onClose} className="rg-btn rg-btn-ghost">
               Cancel
             </button>
-            <button
-              onClick={handleSaveAll}
-              className="flex items-center gap-1.5 px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold rounded-lg shadow-sm"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Configuration</span>
+            <button type="button" onClick={handleSaveAll} className="rg-btn rg-btn-primary">
+              <Save className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Save configuration</span>
             </button>
           </div>
         </div>

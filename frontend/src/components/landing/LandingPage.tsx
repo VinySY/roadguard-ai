@@ -1,186 +1,342 @@
 import React from 'react';
 import { UserRole } from '../../types';
 import heroInspectionImg from '../../assets/images/roadguard_hero_inspection_1790958611333.jpg';
+import evidenceImg from '../../assets/images/roadguard_pothole_evidence_1790958622590.jpg';
+import municipalImg from '../../assets/images/roadguard_municipal_operations_1790958647322.jpg';
+import workerImg from '../../assets/images/roadguard_worker_field_1790958635986.jpg';
 import {
-  Camera,
-  Shield,
-  Wrench,
-  MapPin,
   ArrowRight,
-  CheckCircle2,
-  Sparkles,
+  BarChart3,
   Building2,
-  Eye,
-  FileCheck,
+  Camera,
+  CheckCircle2,
+  FileText,
+  Film,
+  Gauge,
+  MapPin,
+  ScanLine,
+  ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 
 interface LandingPageProps {
   onEnterRole: (role: UserRole) => void;
   onOpenReportModal: () => void;
+  onStartDetection: () => void;
+  onExploreMap: () => void;
 }
+
+const capabilities = [
+  {
+    icon: ScanLine,
+    title: 'Segmentation-based detection',
+    description:
+      'Road images are analysed by the Roboflow pothole-detection-itsgr segmentation model, returning real masks, confidence values and severity.',
+  },
+  {
+    icon: Film,
+    title: 'Image and video evidence',
+    description:
+      'Upload a photograph or dashcam footage, capture live from a device camera, and inspect frame-level detections in the same workspace.',
+  },
+  {
+    icon: MapPin,
+    title: 'Location-aware reporting',
+    description:
+      'Pin the exact defect on the Streets map, confirm the address, and route the report to the responsible municipal desk.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Operational analytics',
+    description:
+      'Severity distribution, zone concentration, repair backlog and resolution progress are derived from the reports already in the system.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Role-based workspaces',
+    description:
+      'Citizens report and track, field crews manage inspections, and municipal inspectors oversee dispatch and road condition.',
+  },
+  {
+    icon: FileText,
+    title: 'Auditable report trail',
+    description:
+      'Reference numbers, status history, field measurements and photographic evidence stay attached to every incident.',
+  },
+];
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onEnterRole,
   onOpenReportModal,
+  onStartDetection,
+  onExploreMap,
 }) => {
   return (
-    <div className="space-y-16 pb-16">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 p-8 sm:p-14 shadow-2xl">
-        <div className="relative z-10 max-w-3xl space-y-6">
-          <div className="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Next-Generation Municipal Infrastructure</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl font-bold text-white tracking-tight leading-tight text-balance">
-            Safer Urban Roads Through Instant AI Pothole Detection & Rapid Remediation
-          </h1>
-
-          <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-            RoadGuard AI bridges citizens, field repair crews, and municipal inspectors into a unified response loop. Report asphalt distress in seconds, automatically classify severity, and track municipal road restoration in real time.
-          </p>
-
-          {/* Primary Action Buttons */}
-          <div className="flex flex-wrap items-center gap-4 pt-2">
-            <button
-              onClick={onOpenReportModal}
-              className="flex items-center gap-2 px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-            >
-              <Camera className="w-4 h-4" />
-              <span>Report a Road Problem (No Login Needed)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => onEnterRole('inspector')}
-              className="flex items-center gap-2 px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold rounded-xl border border-slate-700 transition-colors cursor-pointer"
-            >
-              <Shield className="w-4 h-4 text-amber-400" />
-              <span>Municipal Operations Console</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Hero Background Visual */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-20 pointer-events-none hidden lg:block overflow-hidden">
+    <div className="mx-auto w-full max-w-7xl space-y-20 pb-16">
+      {/* Hero */}
+      <section className="rg-animate-in relative overflow-hidden rounded-[26px] border border-slate-700/60 bg-slate-950/60 shadow-2xl">
+        <div className="absolute inset-0">
           <img
             src={heroInspectionImg}
             alt="Road surface inspection"
-            className="w-full h-full object-cover mix-blend-luminosity"
+            className="h-full w-full object-cover object-center opacity-45"
           />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0b1120] via-[#0b1120]/92 to-[#0b1120]/30" />
+          <div className="absolute inset-0 bg-[radial-gradient(900px_420px_at_82%_10%,rgba(245,158,11,0.16),transparent_62%)]" />
+        </div>
+
+        <div className="relative z-10 grid gap-10 p-6 sm:p-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:p-14">
+          <div className="max-w-2xl">
+            <div className="rg-kicker">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              AI road-safety operations platform
+            </div>
+
+            <h1 className="mt-5 text-balance text-3xl font-extrabold leading-[1.08] tracking-[-0.03em] text-white sm:text-4xl lg:text-[3.35rem]">
+              Find road defects faster.
+              <span className="block text-amber-400">Get them repaired sooner.</span>
+            </h1>
+
+            <p className="mt-5 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
+              RoadGuard AI connects citizens, field crews and municipal inspectors around one
+              verified record: a photograph, a real segmentation result, an exact location, and a
+              repair trail that everyone can follow.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <button type="button" onClick={onStartDetection} className="rg-btn rg-btn-primary rg-btn-lg">
+                <Camera className="h-4 w-4" aria-hidden="true" />
+                Start Detection
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button type="button" onClick={onExploreMap} className="rg-btn rg-btn-secondary rg-btn-lg">
+                <MapPin className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                Explore Road Map
+              </button>
+              <button type="button" onClick={onOpenReportModal} className="rg-btn rg-btn-ghost rg-btn-lg">
+                Report a pothole
+              </button>
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-700/50 pt-4 text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                No account needed to report
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Gauge className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                Real model inference
+              </span>
+              <span className="font-mono text-slate-500">Roboflow · pothole-detection-itsgr · v1</span>
+            </div>
+          </div>
+
+          {/* Product evidence card */}
+          <div className="rg-glass-strong relative hidden overflow-hidden rounded-2xl lg:block">
+            <div className="flex items-center justify-between border-b border-slate-700/60 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-400" />
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-300">
+                  Inspection evidence
+                </span>
+              </div>
+              <span className="rg-badge rg-badge-neutral">Actual report photo</span>
+            </div>
+            <div className="relative aspect-[4/3] overflow-hidden bg-slate-900">
+              <img
+                src={evidenceImg}
+                alt="Reported pothole evidence from the RoadGuard project"
+                className="h-full w-full object-cover"
+              />
+              <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 backdrop-blur-md">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-slate-100">Pothole evidence</p>
+                  <p className="font-mono text-[10px] text-slate-400">GPS + photograph attached</p>
+                </div>
+                <span className="rg-badge rg-badge-amber">Segmentation</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 divide-x divide-slate-700/60 border-t border-slate-700/60 text-center">
+              {[
+                { label: 'Detection', value: 'Image / video' },
+                { label: 'Location', value: 'Map pin' },
+                { label: 'Handoff', value: 'Municipal' },
+              ].map((item) => (
+                <div key={item.label} className="px-2 py-3">
+                  <p className="font-mono text-[9px] uppercase tracking-wider text-slate-500">{item.label}</p>
+                  <p className="mt-1 text-[11px] font-semibold text-slate-200">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* 3 Dedicated Role Pathways (Core Product Direction) */}
-      <section className="space-y-6">
-        <div className="text-center max-w-xl mx-auto space-y-2">
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-100">
-            Tailored Experiences for Every Stakeholder
+      {/* Capability grid */}
+      <section className="space-y-7">
+        <div className="max-w-2xl">
+          <p className="rg-kicker">Built on the existing platform</p>
+          <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-100 sm:text-3xl">
+            Everything needed to close the road-repair loop
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400">
-            Select your role to explore the tailored information hierarchy and tools.
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            These are the workflows already wired into the application — no fabricated dashboards,
+            placeholder metrics or simulated detections.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* 1. Citizen Portal */}
-          <div
-            onClick={() => onEnterRole('citizen')}
-            className="p-6 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/50 transition-all cursor-pointer group flex flex-col justify-between space-y-4 shadow-sm"
-          >
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-                <Camera className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-amber-400 transition-colors">
-                Citizen Portal
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Take a photo or video of a pothole, pinpoint location, notify the municipal authority, and track real-time repair progress without complex technical clutter.
-              </p>
-            </div>
-            <div className="flex items-center text-xs font-semibold text-amber-400 group-hover:translate-x-1 transition-transform">
-              <span>Enter Citizen View &rarr;</span>
-            </div>
-          </div>
-
-          {/* 2. Field Technician */}
-          <div
-            onClick={() => onEnterRole('worker')}
-            className="p-6 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/50 transition-all cursor-pointer group flex flex-col justify-between space-y-4 shadow-sm"
-          >
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
-                <Wrench className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-amber-400 transition-colors">
-                Field Technician
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Action-oriented daily work orders, turn-by-turn route navigation, inspection checklists, depth measurements, and instant status updates for quick-response crews.
-              </p>
-            </div>
-            <div className="flex items-center text-xs font-semibold text-amber-400 group-hover:translate-x-1 transition-transform">
-              <span>Enter Worker View &rarr;</span>
-            </div>
-          </div>
-
-          {/* 3. Municipal Inspector */}
-          <div
-            onClick={() => onEnterRole('inspector')}
-            className="p-6 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/50 transition-all cursor-pointer group flex flex-col justify-between space-y-4 shadow-sm"
-          >
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                <Shield className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 group-hover:text-amber-400 transition-colors">
-                Municipal Inspector
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Full-city map oversight, automated severity filtering, crew dispatch balancing, official audit PDF generation, and quantitative road quality analytics.
-              </p>
-            </div>
-            <div className="flex items-center text-xs font-semibold text-amber-400 group-hover:translate-x-1 transition-transform">
-              <span>Enter Inspector View &rarr;</span>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {capabilities.map((capability) => {
+            const Icon = capability.icon;
+            return (
+              <article key={capability.title} className="rg-card p-5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-400">
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <h3 className="mt-4 text-sm font-semibold text-slate-100">{capability.title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{capability.description}</p>
+              </article>
+            );
+          })}
         </div>
       </section>
 
-      {/* Proof & Municipal Operational Metrics (Claim-to-Proof Adjacency) */}
-      <section className="p-8 rounded-2xl bg-slate-900 border border-slate-800">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-          <div>
-            <span className="text-2xl sm:text-3xl font-bold font-mono text-amber-400 tabular-nums">
-              &lt; 24h
-            </span>
-            <span className="text-xs text-slate-400 block mt-1">Average Response SLA</span>
-          </div>
-
-          <div>
-            <span className="text-2xl sm:text-3xl font-bold font-mono text-emerald-400 tabular-nums">
-              96.2%
-            </span>
-            <span className="text-xs text-slate-400 block mt-1">Detection Accuracy</span>
-          </div>
-
-          <div>
-            <span className="text-2xl sm:text-3xl font-bold font-mono text-slate-100 tabular-nums">
-              4 Zones
-            </span>
-            <span className="text-xs text-slate-400 block mt-1">Tri-City Municipalities</span>
-          </div>
-
-          <div>
-            <span className="text-2xl sm:text-3xl font-bold font-mono text-blue-400 tabular-nums">
-              100%
-            </span>
-            <span className="text-xs text-slate-400 block mt-1">Audit Trail Transparency</span>
-          </div>
+      {/* Workflow */}
+      <section className="rg-panel overflow-hidden rounded-2xl">
+        <div className="grid gap-0 lg:grid-cols-3">
+          {[
+            {
+              step: '01',
+              title: 'Capture & detect',
+              description:
+                'Upload a photo or video, or use the live camera. The existing Roboflow pipeline returns segmentation masks, confidence and severity.',
+              icon: Camera,
+            },
+            {
+              step: '02',
+              title: 'Locate & verify',
+              description:
+                'Confirm the street address, use GPS, or open Pin on Map to drop a marker on the exact carriageway location.',
+              icon: MapPin,
+            },
+            {
+              step: '03',
+              title: 'Dispatch & track',
+              description:
+                'The report is logged with evidence and routed to the responsible municipal desk, then tracked through repair.',
+              icon: Building2,
+            },
+          ].map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.step}
+                className={`p-6 sm:p-8 ${index > 0 ? 'border-t border-slate-700/50 lg:border-l lg:border-t-0' : ''}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] tracking-[0.18em] text-amber-400">{item.step}</span>
+                  <Icon className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-slate-100">{item.title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{item.description}</p>
+              </div>
+            );
+          })}
         </div>
       </section>
+
+      {/* Role pathways with real imagery */}
+      <section className="space-y-7">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <p className="rg-kicker">Choose your workspace</p>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-100">One platform, three operational views</h2>
+          </div>
+          <p className="max-w-md text-xs leading-relaxed text-slate-400">
+            Switch roles at any time from the header. Each workspace keeps the same reports, map and
+            detection pipeline.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {[
+            {
+              role: 'citizen' as UserRole,
+              title: 'Citizen Portal',
+              description: 'Report a road problem, attach evidence, pin the location and follow the repair status.',
+              image: evidenceImg,
+              icon: Camera,
+            },
+            {
+              role: 'worker' as UserRole,
+              title: 'Field Technician',
+              description: 'Open assigned work orders, review evidence, record measurements and update field status.',
+              image: workerImg,
+              icon: Wrench,
+            },
+            {
+              role: 'inspector' as UserRole,
+              title: 'Municipal Inspector',
+              description: 'Oversee the city map, triage severity, assign crews and review pavement analytics.',
+              image: municipalImg,
+              icon: ShieldCheck,
+            },
+          ].map((path) => {
+            const Icon = path.icon;
+            return (
+              <button
+                key={path.role}
+                type="button"
+                onClick={() => onEnterRole(path.role)}
+                className="rg-card rg-card-interactive group overflow-hidden text-left"
+              >
+                <div className="relative h-40 overflow-hidden bg-slate-900">
+                  <img
+                    src={path.image}
+                    alt=""
+                    className="h-full w-full object-cover opacity-70 transition-transform duration-300 group-hover:scale-[1.03]"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/25 to-transparent" />
+                  <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-500/30 bg-slate-950/80 text-amber-400 backdrop-blur-sm">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span className="text-sm font-semibold text-white">{path.title}</span>
+                  </div>
+                </div>
+                <div className="space-y-3 p-5">
+                  <p className="text-xs leading-relaxed text-slate-400">{path.description}</p>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+                    Enter workspace
+                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-700/50 pt-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500 text-xs font-bold text-slate-950">
+              RG
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-100">RoadGuard AI</p>
+              <p className="text-[11px] text-slate-500">Road-safety intelligence for citizens and municipalities.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-400">
+            <button type="button" onClick={onStartDetection} className="hover:text-amber-400">Detection Studio</button>
+            <button type="button" onClick={onExploreMap} className="hover:text-amber-400">Road Map</button>
+            <button type="button" onClick={onOpenReportModal} className="hover:text-amber-400">Report a problem</button>
+            <span className="font-mono text-slate-600">Roboflow segmentation · MySQL persistence</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };

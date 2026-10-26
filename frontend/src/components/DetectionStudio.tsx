@@ -295,7 +295,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
             AI Pothole Detection & Segmentation
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time Roboflow YOLOv11 Instance Polygon Inference Workspace
+            Real-time Roboflow RF-DETR Instance Polygon Inference Workspace
           </p>
         </div>
 
@@ -426,7 +426,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
                     Verified Pavement Test Dataset
                   </h4>
                   <p className="text-xs text-slate-400">
-                    Select a pre-loaded sample to test YOLOv11 segmentation immediately
+                    Select a pre-loaded sample to test RF-DETR segmentation immediately
                   </p>
                 </div>
                 <span className="text-[11px] font-mono text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
@@ -482,7 +482,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
                   Ready for AI Inspection
                 </h3>
                 <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                  The image is loaded into memory. Configure sensitivity before dispatching to YOLOv11.
+                  The image is loaded into memory. Configure sensitivity before dispatching to RF-DETR.
                 </p>
               </div>
 
@@ -513,7 +513,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
                 className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 flex items-center justify-center gap-2"
               >
                 <Sparkles className="w-4 h-4 fill-current" />
-                <span>Run YOLOv11 Segmentation</span>
+                <span>Run RF-DETR Segmentation</span>
               </button>
 
               <button
@@ -549,7 +549,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
             </h3>
             <div className="space-y-1 text-xs text-slate-400">
               <p>Detecting pavement damage</p>
-              <p>Extracting YOLOv11 polygon instance segmentation</p>
+              <p>Extracting RF-DETR polygon instance segmentation</p>
               <p>Calculating surface area & risk metrics</p>
             </div>
           </div>
@@ -857,7 +857,7 @@ export const DetectionStudio: React.FC<DetectionStudioProps> = ({
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-                <span>Model: YOLOv11 Seg</span>
+                <span>Model: RF-DETR Seg</span>
                 <span>Active Layer: Mask+Box</span>
               </div>
             </div>

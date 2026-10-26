@@ -49,7 +49,12 @@ export interface VideoFrameDetection {
 }
 
 export interface DetectionResult {
+  /** Final, user-facing count of unique potholes. */
   potholeCount: number;
+  /** Explicit alias for clarity in views that also show raw totals. */
+  uniquePotholeCount?: number;
+  /** Model/frame detections before duplicate suppression. Debug only. */
+  rawDetectionCount?: number;
   severity: SeverityLevel;
   confidence: number;
   boxes: BoundingBox[];
@@ -65,12 +70,26 @@ export interface DetectionResult {
   };
   image?: { width: number; height: number };
   analytics?: {
+    /** Unique count for images and the new video payload. */
     totalDetected: number;
     maxConfidence: number;
     damagePercentage: number;
     overallRiskLevel: string;
     uniquePotholeCount?: number;
+    rawDetectionCount?: number;
+    rawTotalDetected?: number;
+    rawPredictionCount?: number;
+    candidateDetectionCount?: number;
+    duplicatePredictionsRemoved?: number;
+    /** Raw frame total (video only), kept for backwards compatibility. */
+    totalDetections?: number;
   };
+  quality?: {
+    level: 'high' | 'medium' | 'low';
+    reasons: string[];
+  };
+  warnings?: string[];
+  limitations?: string[];
   processedAt: string;
   roadConditionIndex?: number; // 0-100
   recommendedAction?: string;
@@ -173,9 +192,9 @@ export interface AppNotification {
   actionUrl?: string;
 }
 
-// Re-export Roboflow and Video detection types for unified access
+// Re-export Roboflow and Video detection types for unified access.
+// `Point` is declared locally above, so it is intentionally not re-exported.
 export type {
-  Point,
   PotholeSeverity,
   PotholePrediction,
   ImageMetadata,
