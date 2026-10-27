@@ -4,12 +4,19 @@ import { storage } from '../../services/storage';
 import { matchMunicipality, sendMunicipalEmailDispatch, DispatchReceipt } from '../../services/municipality';
 import { getCurrentBrowserLocation } from '../../services/location';
 import { detectPotholesInImage, detectPotholesInVideo } from '../../services/detection';
-import { persistEvidenceSource, resolveMediaUrl } from '../../services/media';
+import { isVideoDetection } from '../../services/annotations';
+import {
+  persistEvidenceSource,
+  persistEvidenceVideoSource,
+  resolveMediaUrl,
+  storedMediaPathFromUrl,
+} from '../../services/media';
 import { createRoadIssue } from '../../services/api';
 import { CameraCapture } from '../detection/CameraCapture';
 import { EvidenceInputGrid } from '../detection/EvidenceInputGrid';
 import { LocationPinPicker } from '../map/LocationPinPicker';
 import { EvidenceImage } from '../common/EvidenceImage';
+import { DetectionMedia } from '../common/DetectionMedia';
 import {
   X,
   MapPin,
@@ -108,9 +115,17 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       setSubmissionWarning(null);
       setIsPinPickerOpen(false);
       if (initialDetection) {
+        const videoDetection = isVideoDetection(initialDetection);
         setStep('location');
         setDetection(initialDetection);
-        setEvidenceUrl(initialDetection.imageUrl || null);
+        setEvidenceType(videoDetection ? 'video' : 'image');
+        setEvidenceUrl(
+          initialDetection.imageUrl ||
+            initialDetection.video?.url ||
+            initialDetection.videoUrl ||
+            null
+        );
+        setEvidenceBlob(null);
         setActiveCameraMode(null);
       } else {
         setStep('evidence');
@@ -250,8 +265,10 @@ export const ReportModal: React.FC<ReportModalProps> = ({
       },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      mediaType: evidenceType,
       evidenceImageUrl: evidenceType === 'image' ? resolveMediaUrl(evidenceUrl) || '' : '',
       evidenceVideoUrl: evidenceType === 'video' && evidenceUrl ? evidenceUrl : undefined,
+      evidenceVideoPath: evidenceType === 'video' ? detection?.video?.path : undefined,
       detectionData: detection || undefined,
       priorityScore: detection?.severity === 'critical' ? 95 : detection?.severity === 'high' ? 82 : 60,
       timeline: [
@@ -275,18 +292,58 @@ export const ReportModal: React.FC<ReportModalProps> = ({
     };
 
     try {
-      // Persist the photograph before writing the local report so the evidence
-      // survives refresh. The backend store is preferred; a data URL is the
-      // last-resort fallback when the API is unreachable.
-      if (evidenceType === 'image' && (evidenceBlob || evidenceUrl)) {
-        try {
-          const persisted = await persistEvidenceSource(
+      // Persist media before writing the local report so the evidence survives
+      // refresh. Detection already stores its source file, so prefer that
+      // durable copy instead of uploading the same payload twice.
+      let durableImagePath: string | null = null;
+      let durableVideoUrl: string | undefined;
+      let durableVideoPath: string | undefined;
+
+      if (evidenceType === 'video') {
+        const serverVideoUrl = detection?.video?.url || detection?.videoUrl;
+        const serverVideoPath = detection?.video?.path;
+        if (serverVideoUrl && storedMediaPathFromUrl(serverVideoUrl)) {
+          durableVideoUrl = resolveMediaUrl(serverVideoUrl) || serverVideoUrl;
+          durableVideoPath = serverVideoPath || storedMediaPathFromUrl(serverVideoUrl);
+        }
+
+        if (!durableVideoUrl && (evidenceBlob || evidenceUrl)) {
+          const persisted = await persistEvidenceVideoSource(
             evidenceBlob || evidenceUrl,
-            evidenceBlob instanceof File ? evidenceBlob.name : 'complaint.jpg'
+            evidenceBlob instanceof File ? evidenceBlob.name : 'complaint-video.webm'
           );
-          if (persisted) newIssue.evidenceImageUrl = persisted;
-        } catch (evidenceError) {
-          console.warn('Evidence persistence failed; keeping the available preview.', evidenceError);
+          if (persisted) {
+            durableVideoUrl = persisted.url;
+            durableVideoPath = persisted.path;
+          }
+        }
+
+        if (durableVideoUrl) {
+          newIssue.evidenceVideoUrl = durableVideoUrl;
+          newIssue.evidenceVideoPath = durableVideoPath;
+        } else {
+          setSubmissionWarning(
+            'The video could not be stored on the server, so playback may be unavailable after a refresh. The report and its detection results were still saved.'
+          );
+        }
+      } else if (evidenceType === 'image') {
+        const serverImageUrl = detection?.imageUrl;
+        if (serverImageUrl && storedMediaPathFromUrl(serverImageUrl)) {
+          newIssue.evidenceImageUrl = resolveMediaUrl(serverImageUrl) || serverImageUrl;
+          durableImagePath = storedMediaPathFromUrl(serverImageUrl) || null;
+        } else if (evidenceBlob || evidenceUrl) {
+          try {
+            const persisted = await persistEvidenceSource(
+              evidenceBlob || evidenceUrl,
+              evidenceBlob instanceof File ? evidenceBlob.name : 'complaint.jpg'
+            );
+            if (persisted) {
+              newIssue.evidenceImageUrl = persisted;
+              durableImagePath = storedMediaPathFromUrl(persisted) || null;
+            }
+          } catch (evidenceError) {
+            console.warn('Evidence persistence failed; keeping the available preview.', evidenceError);
+          }
         }
       }
 
@@ -300,11 +357,22 @@ export const ReportModal: React.FC<ReportModalProps> = ({
           status: 'Reported',
           latitude: finalLocation.lat,
           longitude: finalLocation.lng,
+          media_type: evidenceType,
+          evidence_path: durableImagePath,
+          evidence_video_path: durableVideoPath || null,
+          detection_metadata: detection || undefined,
           evidenceFile:
-            evidenceType === 'image' && evidenceBlob ? evidenceBlob : null,
+            evidenceType === 'image' && evidenceBlob && !durableImagePath
+              ? evidenceBlob
+              : null,
         });
         const backendEvidenceUrl = resolveMediaUrl(created.evidence_url);
         if (backendEvidenceUrl) newIssue.evidenceImageUrl = backendEvidenceUrl;
+        const backendVideoUrl = resolveMediaUrl(created.evidence_video_url);
+        if (backendVideoUrl) newIssue.evidenceVideoUrl = backendVideoUrl;
+        if (created.media_type === 'video' || created.media_type === 'image') {
+          newIssue.mediaType = created.media_type;
+        }
       } catch (apiError) {
         console.warn('Report saved locally; backend persistence unavailable.', apiError);
         setSubmissionWarning(
@@ -1090,15 +1158,18 @@ export const ReportModal: React.FC<ReportModalProps> = ({
                 </div>
               )}
 
-              {createdIssue.evidenceImageUrl && (
+              {(createdIssue.evidenceImageUrl || createdIssue.evidenceVideoUrl) && (
                 <div className="mx-auto max-w-md text-left">
-                  <EvidenceImage
-                    src={createdIssue.evidenceImageUrl}
-                    alt="Submitted pothole evidence"
-                    className="h-28 w-full rounded-xl border border-slate-800"
-                    imgClassName="h-full w-full object-cover"
-                    allowFullView
-                  />
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-1.5">
+                    <DetectionMedia
+                      imageSrc={createdIssue.evidenceImageUrl}
+                      videoSrc={createdIssue.evidenceVideoUrl}
+                      detection={createdIssue.detectionData}
+                      alt="Submitted road evidence"
+                      maxHeightClassName="max-h-40"
+                      allowFullView
+                    />
+                  </div>
                 </div>
               )}
 

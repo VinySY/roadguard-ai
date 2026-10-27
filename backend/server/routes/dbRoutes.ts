@@ -19,17 +19,22 @@ import {
   validateStatusUpdate,
   validatePagination,
 } from '../validation.js';
-import { getProjectRoot } from '../utils/paths.js';
+import { getProjectRoot, getUploadsRoot } from '../utils/paths.js';
 import { saveUploadBuffer, toPublicUploadUrl } from '../utils/uploads.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = getProjectRoot(__dirname);
-const uploadsRoot = join(projectRoot, 'uploads');
+const uploadsRoot = getUploadsRoot(projectRoot);
 
 const issueUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: {
+    fileSize: 15 * 1024 * 1024,
+    // Detection metadata is compact JSON, never base64 media. 5 MB allows a
+    // dense multi-frame video report while keeping blind payloads bounded.
+    fieldSize: 5 * 1024 * 1024,
+  },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if (allowedTypes.includes(file.mimetype.toLowerCase())) {
@@ -48,13 +53,19 @@ function parseOptionalMultipartBody(req: Request, _res: Response, next: NextFunc
   next();
 }
 
-function withPublicMedia<T extends { evidence_path?: string | null; image_path?: string | null }>(record: T): T {
+function withPublicMedia<T extends Record<string, any>>(record: T): T {
   const extra: Record<string, string | null> = {};
   if ('evidence_path' in record) {
     extra.evidence_url = toPublicUploadUrl(record.evidence_path ?? null);
   }
+  if ('evidence_video_path' in record) {
+    extra.evidence_video_url = toPublicUploadUrl(record.evidence_video_path ?? null);
+  }
   if ('image_path' in record) {
     extra.image_url = toPublicUploadUrl(record.image_path ?? null);
+  }
+  if ('video_path' in record) {
+    extra.video_url = toPublicUploadUrl(record.video_path ?? null);
   }
   return { ...record, ...extra };
 }
@@ -220,7 +231,10 @@ router.post('/api/issues', parseOptionalMultipartBody, async (req: Request, res:
       longitude: validation.data!.longitude,
       severity: validation.data!.severity,
       status: validation.data!.status,
+      media_type: validation.data!.media_type,
       evidence_path: validation.data!.evidence_path,
+      evidence_video_path: validation.data!.evidence_video_path,
+      detection_metadata: validation.data!.detection_metadata,
     });
 
     const issue = await getRoadIssueById(id);

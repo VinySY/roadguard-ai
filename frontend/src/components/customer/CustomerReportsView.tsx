@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RoadIssue, IssueStatus, User } from '../../types';
 import { MapPin, CheckCircle2, AlertCircle, Building2, Plus } from 'lucide-react';
-import { EvidenceImage } from '../common/EvidenceImage';
+import { DetectionMedia } from '../common/DetectionMedia';
 import { SeverityBadge, StatusBadge, statusLabel } from '../common/StatusBadge';
 import { PageHeader } from '../common/PageHeader';
 import { EmptyState } from '../common/EmptyState';
@@ -172,18 +172,23 @@ export const CustomerReportsView: React.FC<CustomerReportsViewProps> = ({
                 <span className="text-[11px] font-mono text-emerald-400">Official Channel</span>
               </div>
 
-              {/* Photographic Evidence Preview */}
+              {/* Photographic / video Evidence Preview */}
               <div>
-                <span className="text-xs font-medium text-slate-400 block mb-2">Photographic evidence</span>
-                <EvidenceImage
-                  src={activeIssue.evidenceImageUrl}
-                  alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
-                  caption={`${activeIssue.location.street || activeIssue.location.area} · ${new Date(activeIssue.createdAt).toLocaleDateString()}`}
-                  className="relative max-h-64 min-h-[140px] rounded-xl border border-slate-800"
-                  imgClassName="w-full h-64 object-cover"
-                  allowFullView
-                />
-                {activeIssue.detectionData && activeIssue.evidenceImageUrl && (
+                <span className="text-xs font-medium text-slate-400 block mb-2">
+                  {activeIssue.evidenceVideoUrl ? 'Video evidence' : 'Photographic evidence'}
+                </span>
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-1.5">
+                  <DetectionMedia
+                    imageSrc={activeIssue.evidenceImageUrl}
+                    videoSrc={activeIssue.evidenceVideoUrl}
+                    detection={activeIssue.detectionData}
+                    alt={`Road evidence for ${activeIssue.referenceNumber}`}
+                    caption={`${activeIssue.location.street || activeIssue.location.area} · ${new Date(activeIssue.createdAt).toLocaleDateString()}`}
+                    maxHeightClassName="max-h-64"
+                    allowFullView
+                  />
+                </div>
+                {activeIssue.detectionData && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                     <span className="rg-badge rg-badge-amber">
                       {activeIssue.detectionData.potholeCount} cavities detected

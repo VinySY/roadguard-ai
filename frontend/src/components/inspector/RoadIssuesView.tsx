@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RoadIssue, SeverityLevel, IssueStatus, User } from '../../types';
 import { storage, DEMO_USERS } from '../../services/storage';
 import {
@@ -11,7 +12,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { MunicipalEmailModal } from '../reporting/MunicipalEmailModal';
-import { EvidenceImage } from '../common/EvidenceImage';
+import { DetectionMedia } from '../common/DetectionMedia';
 import { PageHeader } from '../common/PageHeader';
 import { EmptyState } from '../common/EmptyState';
 import { SeverityBadge, StatusBadge } from '../common/StatusBadge';
@@ -36,6 +37,8 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
     selectedIssueId ? issues.find((i) => i.id === selectedIssueId) || null : null
   );
   const [emailModalIssue, setEmailModalIssue] = useState<RoadIssue | null>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Keep the drawer selection in sync with map / dashboard deep links.
   useEffect(() => {
@@ -53,6 +56,46 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [activeIssue]);
+
+  // Move focus into the drawer while it is open and restore it on close.
+  const isDrawerOpen = Boolean(activeIssue);
+  useEffect(() => {
+    if (!isDrawerOpen) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const closeButton = drawerRef.current?.querySelector<HTMLButtonElement>('[data-drawer-close]');
+    closeButton?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus?.();
+      previouslyFocusedRef.current = null;
+    };
+  }, [isDrawerOpen]);
+
+  // Keep Tab navigation inside the drawer.
+  const handleDrawerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+
+    const focusable = Array.from(
+      drawer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const workers = [DEMO_USERS.worker, { id: 'user-wrk-02', name: 'Surjit Singh (Crew 2)', role: 'worker' as const }];
 
@@ -328,143 +371,162 @@ export const RoadIssuesView: React.FC<RoadIssuesViewProps> = ({
         )}
       </div>
 
-      {/* Slide-over incident management drawer */}
-      {activeIssue && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm rg-animate-fade">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="issue-drawer-title"
-            className="w-full max-w-xl space-y-6 overflow-y-auto border-l border-slate-800 bg-slate-900 p-6 text-slate-100 shadow-2xl"
-          >
-            {/* Drawer header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div>
-                <span className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-bold text-amber-400">
-                  {activeIssue.referenceNumber}
-                </span>
-                <h3 id="issue-drawer-title" className="mt-2 text-base font-bold text-slate-100">
-                  {activeIssue.title}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveIssue(null)}
-                className="rg-icon-btn"
-                aria-label="Close incident details"
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </div>
+      {/* Slide-over incident management drawer.
+          Rendered in a portal so it leaves the `relative z-[1]` content
+          stacking context; `z-30` keeps it beneath the z-40 app header while
+          the top offset reserves the fixed header's height. */}
+      {activeIssue &&
+        createPortal(
+          <div className="fixed inset-0 z-30 rg-animate-fade">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              onClick={() => setActiveIssue(null)}
+              aria-hidden="true"
+            />
 
-            {/* Evidence & Location */}
-            <div className="space-y-3">
-              <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 max-h-52 flex items-center justify-center">
-                <EvidenceImage
-                  src={activeIssue.evidenceImageUrl}
-                  alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
-                  caption={activeIssue.location.street || activeIssue.location.area}
-                  className="h-52 w-full"
-                  imgClassName="w-full h-full object-cover"
-                  allowFullView
-                />
-              </div>
-
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>
-                    {activeIssue.location.street || 'Site roadway'}, {activeIssue.location.area},{' '}
-                    {activeIssue.location.city}
+            <div
+              ref={drawerRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="issue-drawer-title"
+              onKeyDown={handleDrawerKeyDown}
+              className="absolute right-0 top-16 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] flex w-full max-w-xl flex-col border-l border-slate-800 bg-slate-900 text-slate-100 shadow-2xl lg:bottom-0"
+            >
+              {/* Fixed drawer header — stays visible while content scrolls */}
+              <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-800 px-4 py-4 sm:px-6">
+                <div className="min-w-0">
+                  <span className="rounded border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-bold text-amber-400">
+                    {activeIssue.referenceNumber}
                   </span>
+                  <h3 id="issue-drawer-title" className="mt-2 truncate text-base font-bold text-slate-100">
+                    {activeIssue.title}
+                  </h3>
                 </div>
-                <div className="text-[11px] font-mono text-slate-500">
-                  {activeIssue.location.lat.toFixed(4)}°N, {activeIssue.location.lng.toFixed(4)}°E
-                </div>
-              </div>
-            </div>
-
-            {/* Status & Crew Assignment Form */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
-              <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-                Supervisor Controls
-              </h4>
-
-              {/* Status update */}
-              <div>
-                <label htmlFor="issue-status-select" className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Update status
-                </label>
-                <select
-                  id="issue-status-select"
-                  value={activeIssue.status}
-                  onChange={(e) => handleStatusChange(activeIssue.id, e.target.value as IssueStatus)}
-                  className="rg-select"
-                >
-                  <option value="reported">Reported</option>
-                  <option value="notified_municipality">Municipality notified</option>
-                  <option value="inspection_scheduled">Inspection scheduled</option>
-                  <option value="in_repair">In repair</option>
-                  <option value="resolved">Resolved &amp; certified</option>
-                </select>
-              </div>
-
-              {/* Worker assignment */}
-              <div>
-                <label htmlFor="issue-worker-select" className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Assign field crew
-                </label>
-                <select
-                  id="issue-worker-select"
-                  value={activeIssue.assignedWorkerId || ''}
-                  onChange={(e) => {
-                    const w = workers.find((item) => item.id === e.target.value);
-                    if (w) {
-                      handleAssignWorker(activeIssue.id, w.id, w.name);
-                    }
-                  }}
-                  className="rg-select"
-                >
-                  <option value="">Select field technician</option>
-                  {workers.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Municipal transmittal */}
-              <div className="border-t border-slate-800 pt-2">
                 <button
                   type="button"
-                  onClick={() => setEmailModalIssue(activeIssue)}
-                  className="rg-btn rg-btn-secondary w-full"
+                  data-drawer-close
+                  onClick={() => setActiveIssue(null)}
+                  className="rg-icon-btn shrink-0"
+                  aria-label="Close incident details"
                 >
-                  <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
-                  <span>Transmit official municipal email</span>
+                  <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
-            </div>
 
-            {/* Inspection Checklist Review (if present) */}
-            {activeIssue.inspection && (
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
-                <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-                  Field Inspection Notes ({activeIssue.assignedWorkerName || 'Crew'})
-                </h4>
-                <p className="text-slate-300 italic">{activeIssue.inspection.notes || 'Routine patch logged.'}</p>
-                {activeIssue.inspection.measurements && (
-                  <div className="font-mono text-slate-400 pt-1 text-[11px]">
-                    Measurements: {activeIssue.inspection.measurements.estimatedDepthCm}cm depth ×{' '}
-                    {activeIssue.inspection.measurements.estimatedWidthCm}cm width
+              {/* Scrollable drawer content */}
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+                {/* Evidence & Location */}
+                <div className="space-y-3">
+                  <div className="relative flex items-center justify-center rounded-xl border border-slate-800 bg-slate-950 p-2">
+                    <DetectionMedia
+                      imageSrc={activeIssue.evidenceImageUrl}
+                      videoSrc={activeIssue.evidenceVideoUrl}
+                      detection={activeIssue.detectionData}
+                      alt={`Road evidence for ${activeIssue.referenceNumber}`}
+                      caption={activeIssue.location.street || activeIssue.location.area}
+                      maxHeightClassName="max-h-[260px]"
+                      allowFullView
+                    />
+                  </div>
+
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
+                    <div className="flex items-center gap-1.5 text-slate-300">
+                      <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        {activeIssue.location.street || 'Site roadway'}, {activeIssue.location.area},{' '}
+                        {activeIssue.location.city}
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-500">
+                      {activeIssue.location.lat.toFixed(4)}°N, {activeIssue.location.lng.toFixed(4)}°E
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status & Crew Assignment Form */}
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-4">
+                  <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                    Supervisor Controls
+                  </h4>
+
+                  {/* Status update */}
+                  <div>
+                    <label htmlFor="issue-status-select" className="mb-1 block text-[11px] font-medium text-slate-400">
+                      Update status
+                    </label>
+                    <select
+                      id="issue-status-select"
+                      value={activeIssue.status}
+                      onChange={(e) => handleStatusChange(activeIssue.id, e.target.value as IssueStatus)}
+                      className="rg-select"
+                    >
+                      <option value="reported">Reported</option>
+                      <option value="notified_municipality">Municipality notified</option>
+                      <option value="inspection_scheduled">Inspection scheduled</option>
+                      <option value="in_repair">In repair</option>
+                      <option value="resolved">Resolved &amp; certified</option>
+                    </select>
+                  </div>
+
+                  {/* Worker assignment */}
+                  <div>
+                    <label htmlFor="issue-worker-select" className="mb-1 block text-[11px] font-medium text-slate-400">
+                      Assign field crew
+                    </label>
+                    <select
+                      id="issue-worker-select"
+                      value={activeIssue.assignedWorkerId || ''}
+                      onChange={(e) => {
+                        const w = workers.find((item) => item.id === e.target.value);
+                        if (w) {
+                          handleAssignWorker(activeIssue.id, w.id, w.name);
+                        }
+                      }}
+                      className="rg-select"
+                    >
+                      <option value="">Select field technician</option>
+                      {workers.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Municipal transmittal */}
+                  <div className="border-t border-slate-800 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEmailModalIssue(activeIssue)}
+                      className="rg-btn rg-btn-secondary w-full"
+                    >
+                      <Mail className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                      <span>Transmit official municipal email</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Inspection Checklist Review (if present) */}
+                {activeIssue.inspection && (
+                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
+                    <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                      Field Inspection Notes ({activeIssue.assignedWorkerName || 'Crew'})
+                    </h4>
+                    <p className="text-slate-300 italic">{activeIssue.inspection.notes || 'Routine patch logged.'}</p>
+                    {activeIssue.inspection.measurements && (
+                      <div className="font-mono text-slate-400 pt-1 text-[11px]">
+                        Measurements: {activeIssue.inspection.measurements.estimatedDepthCm}cm depth ×{' '}
+                        {activeIssue.inspection.measurements.estimatedWidthCm}cm width
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Municipal Email Modal */}
       {emailModalIssue && (

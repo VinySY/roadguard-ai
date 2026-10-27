@@ -100,7 +100,7 @@ export interface EnrichedPrediction extends SanitizedPrediction {
 
 export const DEFAULT_CONFIDENCE_PERCENT = 20;
 export const DEFAULT_OVERLAP_PERCENT = 30;
-export const DEFAULT_MASK_IOU_THRESHOLD = 0.5;
+export const DEFAULT_MASK_IOU_THRESHOLD = 0.65;
 export const DEFAULT_CONTAINMENT_THRESHOLD = 0.9;
 export const DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT = 0.35;
 export const DEFAULT_BOX_IOU_THRESHOLD = 0.8;
@@ -464,9 +464,14 @@ function isSamePhysicalPothole(
     const overlap = compareMasks(a.points, b.points, options.rasterSize ?? 48);
     if (overlap && overlap.areaA > 0 && overlap.areaB > 0) {
       const areaRatio = Math.min(overlap.areaA, overlap.areaB) / Math.max(overlap.areaA, overlap.areaB);
+      // Containment only suppresses a *smaller* mask nested inside the kept
+      // one. A lower-confidence mask that is larger than the kept mask may
+      // span two touching potholes; merging it would hide a real pothole.
+      const candidateIsNested = overlap.areaB <= overlap.areaA * 1.02;
       const same = overlap.maskIoU >= options.maskIouThreshold
         || (
-          overlap.maskIoS >= options.containmentThreshold
+          candidateIsNested
+          && overlap.maskIoS >= options.containmentThreshold
           && areaRatio >= options.minAreaRatioForContainment
         );
       return { same, maskIoU: overlap.maskIoU, maskIoS: overlap.maskIoS, boxIoU };

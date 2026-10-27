@@ -16,10 +16,12 @@
  *     separately instead of silently inflating the unique count.
  */
 
-import {
+import type {
   BoundingBox,
   RawPrediction,
   SanitizedPrediction,
+} from './detectionPostprocess.js';
+import {
   calculateBoxIoU,
   clamp,
   compareMasks,

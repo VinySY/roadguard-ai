@@ -83,6 +83,110 @@ const VALID_CATEGORIES = [
   'Pothole', 'Road Damage', 'Cracked Road', 'Waterlogging',
   'Uneven Surface', 'Missing Road Marking', 'Other'
 ] as const;
+const VALID_MEDIA_TYPES = ['image', 'video'] as const;
+const MAX_MEDIA_PATH_LENGTH = 1024;
+/** Compact detector geometry only — never inline base64 media. */
+const MAX_DETECTION_METADATA_LENGTH = 1_000_000;
+
+/**
+ * Removes session-only blob URLs (useless after refresh) and inline data: media
+ * so report JSON never becomes a media store. Geometry, class, confidence and
+ * frame timestamps are preserved.
+ */
+function sanitizeMetadataValue(value: unknown, depth = 0): unknown {
+  if (depth > 12) return undefined;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // Drop session-only and inline media references entirely. The detector
+    // geometry in the same object is kept, but no base64 payload reaches MySQL.
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return undefined;
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeMetadataValue(item, depth + 1))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === 'object') {
+    const clone: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const sanitized = sanitizeMetadataValue(item, depth + 1);
+      if (sanitized !== undefined) clone[key] = sanitized;
+    }
+    return clone;
+  }
+
+  return value;
+}
+
+function sanitizeMediaPath(
+  value: unknown,
+  field: string,
+  errors: ValidationError[]
+): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  if (str.length > MAX_MEDIA_PATH_LENGTH) {
+    errors.push({ field, message: `${field} must not exceed ${MAX_MEDIA_PATH_LENGTH} characters` });
+    return null;
+  }
+  if (str.startsWith('blob:') || str.startsWith('data:')) {
+    errors.push({ field, message: `${field} must reference persisted server media, not a session-only URL` });
+    return null;
+  }
+  if (str.includes('..') || /[\u0000-\u001f]/.test(str)) {
+    errors.push({ field, message: `${field} contains an invalid path` });
+    return null;
+  }
+  return str.replace(/\\/g, '/');
+}
+
+function sanitizeDetectionMetadata(
+  value: unknown,
+  field: string,
+  errors: ValidationError[]
+): unknown | null {
+  if (value === undefined || value === null || value === '') return null;
+
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    if (value.length > MAX_DETECTION_METADATA_LENGTH) {
+      errors.push({ field, message: `${field} is too large; store compact detector geometry only` });
+      return null;
+    }
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      errors.push({ field, message: `${field} must be valid JSON` });
+      return null;
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    errors.push({ field, message: `${field} must be an object containing detector output` });
+    return null;
+  }
+
+  const sanitized = sanitizeMetadataValue(parsed);
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(sanitized);
+  } catch {
+    errors.push({ field, message: `${field} could not be serialized` });
+    return null;
+  }
+  if (serialized.length > MAX_DETECTION_METADATA_LENGTH) {
+    errors.push({ field, message: `${field} is too large; store compact detector geometry only` });
+    return null;
+  }
+
+  return sanitized;
+}
 
 export interface ValidatedRoadIssue {
   category: string;
@@ -91,7 +195,10 @@ export interface ValidatedRoadIssue {
   longitude: number | null;
   severity: string;
   status: string;
+  media_type: 'image' | 'video';
   evidence_path: string | null;
+  evidence_video_path: string | null;
+  detection_metadata: unknown | null;
 }
 
 /**
@@ -126,7 +233,34 @@ export function validateRoadIssue(body: any): {
     if (validatedStatus) status = validatedStatus;
   }
 
-  const evidence_path = body.evidence_path ? String(body.evidence_path).trim() : null;
+  // Media fields are optional. Older clients still send only evidence_path.
+  let media_type: 'image' | 'video' = 'image';
+  if (body.media_type !== undefined && body.media_type !== null && body.media_type !== '') {
+    const validatedMediaType = validateEnum(
+      body.media_type,
+      'media_type',
+      VALID_MEDIA_TYPES,
+      errors,
+      false
+    );
+    if (validatedMediaType) media_type = validatedMediaType as 'image' | 'video';
+  }
+
+  const evidence_path = sanitizeMediaPath(body.evidence_path, 'evidence_path', errors);
+  const evidence_video_path = sanitizeMediaPath(
+    body.evidence_video_path,
+    'evidence_video_path',
+    errors
+  );
+  // Backwards-compatible inference for clients that send the video path alone.
+  if (!body.media_type && evidence_video_path) {
+    media_type = 'video';
+  }
+  const detection_metadata = sanitizeDetectionMetadata(
+    body.detection_metadata,
+    'detection_metadata',
+    errors
+  );
 
   if (errors.length > 0) {
     return { valid: false, errors };
@@ -142,7 +276,10 @@ export function validateRoadIssue(body: any): {
       longitude,
       severity: severity!,
       status,
+      media_type,
       evidence_path,
+      evidence_video_path,
+      detection_metadata,
     },
   };
 }

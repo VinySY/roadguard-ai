@@ -1227,6 +1227,12 @@ export const VideoDetectionStudio: React.FC<VideoDetectionStudioProps> = () => {
                 </span>
                 <p className="text-slate-400 text-[11px] leading-relaxed">
                   As the vehicle traverses the road, a single pothole is captured across multiple sequential video frames. RoadGuard first merges overlapping predictions inside each frame, then tracks confirmed potholes across frames using motion prediction and mask/box overlap. The final work-order count is <strong>{videoState.result.analytics.uniquePotholeCount} distinct road defect(s)</strong>; the raw frame total is shown only for audit.
+                  {(videoState.result.analytics.tentativePotholeCount ?? 0) > 0 && (
+                    <>
+                      {' '}
+                      <strong>{videoState.result.analytics.tentativePotholeCount}</strong> additional track(s) were visible too briefly to confirm and are not counted.
+                    </>
+                  )}
                 </p>
               </div>
             </div>

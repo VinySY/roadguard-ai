@@ -92,7 +92,8 @@ The existing schema already supports video inspections:
 3. **Frame Extraction**
    - Uses system FFmpeg (installed manually)
    - Extracts frames at specified FPS (default: 1 frame/sec)
-   - Limits to max 30 frames per video (prevents excessive processing)
+   - Limits to 60 frames by default (configurable via `maxFrames` or
+     `MAX_VIDEO_FRAMES`, hard maximum 300)
    - Saves frames to temporary directory with session ID
 
 4. **Frame Detection**
@@ -135,7 +136,7 @@ npm run build - Success (no errors)
 2. **Invalid Format**: Returns proper error - `"Invalid file type"`
 3. **Valid Video**: Complete processing successful
 
-**✅ Test Video Analysis:**
+**✅ Test Video Analysis (historical, 2026-09-26):**
 - **Video**: 3-second MP4 (115KB) created from test image
 - **FPS**: 1 (extracted 3 frames)
 - **Detections**: 18 total (6 per frame)
@@ -143,10 +144,16 @@ npm run build - Success (no errors)
 - **Damage**: 6.29% average
 - **Risk**: CRITICAL (multiple large potholes)
 
+> These numbers predate the counting rework. The current endpoint reports
+> unique potholes after per-frame dedup and cross-frame tracking; see
+> `DETECTION_COUNTING_FIX.md` for current verified results. The hosted model's
+> predictions also vary between calls, so re-run rather than assuming 18/6.
+
 **✅ Database Persistence:**
 - **Inspection ID**: 7 (video)
 - **Image Path**: `null` (videos not persisted due to size)
-- **Detection Count**: 18 (6 potholes × 3 frames)
+- **Detection Count**: 18 (historical raw frame detections; new rows store raw
+  in `detection_count` and unique in `unique_pothole_count`)
 - **Overall Risk**: CRITICAL
 - **Damage Percentage**: 6.29
 
@@ -166,7 +173,7 @@ backend/uploads/frames/ - empty
 **Frame Sampling:**
 - Default: 1 frame/second
 - Configurable: 0.1-5 fps via `fps` parameter
-- Cap: 30 frames max per video
+- Cap: 60 frames by default (query `maxFrames`, env `MAX_VIDEO_FRAMES`, max 300)
 
 **Processing Time:**
 - 3-second video: ~10-15 seconds total
@@ -180,18 +187,21 @@ backend/uploads/frames/ - empty
 ### 8. Limitations & Future Improvements
 
 **Current Limitations:**
-1. **No Pothole Tracking**: Each frame processed independently
-2. **No Deduplication**: Same pothole across frames counted multiple times
-3. **Max Frames**: 30 frames per video cap
-4. **Video Storage**: Videos not persisted (only metadata)
+1. **Model coverage**: the hosted model does not detect every visible pothole.
+2. **Briefly visible potholes**: tracks seen in fewer than 2 sampled frames are
+   reported as tentative and excluded from the final count.
+3. **Max Frames**: 60 by default; longer clips are truncated and this is reported.
+4. **Video Storage**: successful videos are retained for report playback; failed uploads are cleaned up. Consider a retention policy for disk usage.
 5. **Format Support**: Limited to 5 common video formats
 
+**Implemented since the original summary:**
+1. **Object Tracking**: one-to-one motion-compensated tracker in `potholeTracker.ts`
+2. **Deduplication**: mask-aware within-frame suppression plus cross-frame IDs
+
 **Potential Improvements:**
-1. **Object Tracking**: Use OpenCV or similar to track potholes across frames
-2. **Deduplication**: Simple IOU-based matching for adjacent frames
-3. **Progressive Sampling**: Adaptive FPS based on detection density
-4. **Video Preview**: Generate annotated video with bounding boxes
-5. **Streaming Support**: Process video streams in real-time
+1. **Progressive Sampling**: adaptive FPS based on detection density
+2. **Video Preview**: generate an annotated video with bounding boxes
+3. **Streaming Support**: process video streams in real-time
 
 ### 9. API Keys & Security
 

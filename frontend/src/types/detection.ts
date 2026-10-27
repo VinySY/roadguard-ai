@@ -110,6 +110,10 @@ export interface VideoMetadata {
   height: number;
   fps: number;
   codec: string;
+  /** Durable URL of the stored source video, when the backend retained it. */
+  url?: string;
+  /** Durable stored path, e.g. uploads/videos/123_clip.mp4. */
+  path?: string;
 }
 
 export interface VideoProcessingInfo {
@@ -118,7 +122,9 @@ export interface VideoProcessingInfo {
   processedFrames: number;
   failedFrames: number;
   maxFrames?: number;
+  frameLimit?: number;
   estimatedFrames?: number;
+  truncated?: boolean;
 }
 
 export interface VideoAnalytics {
@@ -189,6 +195,9 @@ export interface VideoDetectionResponse {
   success: boolean;
   type: 'video';
   video: VideoMetadata;
+  /** Backwards-compatible aliases for the retained source video. */
+  videoUrl?: string;
+  videoPath?: string;
   processing: VideoProcessingInfo;
   analytics: VideoAnalytics;
   frames: FrameDetectionResult[];
@@ -207,6 +216,8 @@ export interface VideoDetectionResponse {
     saved: boolean;
     inspectionId?: number;
     warning?: string;
+    videoUrl?: string;
+    videoPath?: string;
   };
 }
 

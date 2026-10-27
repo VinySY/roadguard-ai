@@ -95,6 +95,19 @@ export function getPool(): mysql.Pool | null {
   }
 }
 
+async function ensureSchemaColumn(
+  p: mysql.Pool,
+  table: 'inspections' | 'road_issues',
+  column: string,
+  definition: string
+): Promise<void> {
+  const [columns]: any = await p.query(`SHOW COLUMNS FROM \`${table}\` LIKE '${column}'`);
+  if (columns && columns.length === 0) {
+    await p.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+    console.log(`[RoadGuard DB] Added ${table}.${column} column.`);
+  }
+}
+
 /**
  * Ensures required database tables exist without breaking existing data.
  */
@@ -113,6 +126,9 @@ async function ensureSchema(p: mysql.Pool): Promise<void> {
         overall_risk ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') NOT NULL DEFAULT 'LOW',
         damage_percentage DECIMAL(7, 2) NOT NULL DEFAULT 0.00,
         confidence_threshold INT UNSIGNED NOT NULL DEFAULT 20,
+        media_type VARCHAR(16) NOT NULL DEFAULT 'image',
+        video_path VARCHAR(1024) DEFAULT NULL,
+        detection_metadata JSON DEFAULT NULL,
         latitude DECIMAL(10, 7) DEFAULT NULL,
         longitude DECIMAL(11, 7) DEFAULT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -155,7 +171,10 @@ async function ensureSchema(p: mysql.Pool): Promise<void> {
         longitude DECIMAL(11, 7) DEFAULT NULL,
         severity ENUM('minor', 'moderate', 'high', 'critical') NOT NULL DEFAULT 'minor',
         status ENUM('Reported', 'In Inspection', 'Scheduled for Repair', 'Resolved') NOT NULL DEFAULT 'Reported',
+        media_type VARCHAR(16) NOT NULL DEFAULT 'image',
         evidence_path VARCHAR(1024) DEFAULT NULL,
+        evidence_video_path VARCHAR(1024) DEFAULT NULL,
+        detection_metadata JSON DEFAULT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -166,7 +185,15 @@ async function ensureSchema(p: mysql.Pool): Promise<void> {
       ) ENGINE=InnoDB;
     `);
 
-    // 4. Ensure optional latitude/longitude columns exist on older tables
+    // 4. Backward-compatible media/detection columns for existing databases.
+    await ensureSchemaColumn(p, 'inspections', 'media_type', "VARCHAR(16) NOT NULL DEFAULT 'image'");
+    await ensureSchemaColumn(p, 'inspections', 'video_path', 'VARCHAR(1024) DEFAULT NULL');
+    await ensureSchemaColumn(p, 'inspections', 'detection_metadata', 'JSON DEFAULT NULL');
+    await ensureSchemaColumn(p, 'road_issues', 'media_type', "VARCHAR(16) NOT NULL DEFAULT 'image'");
+    await ensureSchemaColumn(p, 'road_issues', 'evidence_video_path', 'VARCHAR(1024) DEFAULT NULL');
+    await ensureSchemaColumn(p, 'road_issues', 'detection_metadata', 'JSON DEFAULT NULL');
+
+    // 5. Ensure optional latitude/longitude columns exist on older tables
     const [cols]: any = await p.query("SHOW COLUMNS FROM inspections LIKE 'latitude'");
     if (cols && cols.length === 0) {
       await p.query(

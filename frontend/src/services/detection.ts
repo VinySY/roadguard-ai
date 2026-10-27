@@ -343,6 +343,13 @@ export async function detectPotholesInVideo(
 
   const avgConfidence = json.analytics?.maxConfidence ?? 0.85;
 
+  // The backend retains the source video and returns a durable URL/path. Prefer
+  // it over the browser's session-only blob URL, which dies on refresh.
+  const durableVideoUrl: string | undefined =
+    videoMeta.url || json.videoUrl || json.persistence?.videoUrl || undefined;
+  const durableVideoPath: string | undefined =
+    videoMeta.path || json.videoPath || json.persistence?.videoPath || undefined;
+
   return {
     potholeCount: uniquePotholeCount,
     uniquePotholeCount,
@@ -350,7 +357,7 @@ export async function detectPotholesInVideo(
     severity,
     confidence: Math.round(avgConfidence * 100) / 100,
     boxes: primaryBoxes,
-    videoUrl: previewUrl,
+    videoUrl: durableVideoUrl || previewUrl,
     videoFrames,
     video: {
       filename: videoMeta.filename,
@@ -358,6 +365,8 @@ export async function detectPotholesInVideo(
       width: defaultWidth,
       height: defaultHeight,
       fps: videoMeta.fps,
+      url: durableVideoUrl,
+      path: durableVideoPath,
     },
     image: { width: defaultWidth, height: defaultHeight },
     processedAt: new Date().toISOString(),
@@ -376,6 +385,9 @@ export async function detectPotholesInVideo(
       duplicatePredictionsRemoved: json.analytics?.duplicatePredictionsRemoved,
       rawPredictionCount: json.analytics?.rawPredictionCount,
       candidateDetectionCount: json.analytics?.candidateDetectionCount,
+      confirmedPotholeCount: json.analytics?.confirmedPotholeCount,
+      tentativePotholeCount: json.analytics?.tentativePotholeCount,
+      totalTracks: json.analytics?.totalTracks,
       maxConfidence: avgConfidence,
       damagePercentage: json.analytics?.avgDamagePercentage || json.analytics?.averageDamagePercentage || 0,
       overallRiskLevel: worstRisk,

@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
@@ -10,8 +11,14 @@ import { getPool, checkDbHealth, closePool } from './db/pool.js';
 import { saveInspection, saveDetections } from './db/persistence.js';
 import dbRoutes from './routes/dbRoutes.js';
 import videoRoutes from './routes/videoDetection.js';
-import { getProjectRoot } from './utils/paths.js';
-import { ensureDir, saveUploadBuffer, toPublicUploadUrl } from './utils/uploads.js';
+import { getProjectRoot, getUploadsRoot } from './utils/paths.js';
+import {
+  ensureDir,
+  isAllowedVideoMime,
+  safeOriginalFilename,
+  saveUploadBuffer,
+  toPublicUploadUrl,
+} from './utils/uploads.js';
 import {
   buildModelsMetadataUrl,
   buildServerlessInferenceUrl,
@@ -84,11 +91,13 @@ app.use(
 // `ROBOFLOW_MODEL_ID` is authoritative for inference; see config/roboflow.ts.
 const roboflowConfig = getRoboflowConfig();
 
-// Ensure uploads directory exists for persisting inspection and complaint images
-const uploadsRoot = join(projectRoot, 'uploads');
-const uploadsDir = join(uploadsRoot, 'inspections');
-ensureDir(uploadsDir);
+// Ensure uploads directory exists for persisting inspection and complaint media.
+// UPLOAD_ROOT can point at a mounted persistent volume in production.
+const uploadsRoot = getUploadsRoot(projectRoot);
+ensureDir(uploadsRoot);
+ensureDir(join(uploadsRoot, 'inspections'));
 ensureDir(join(uploadsRoot, 'evidence'));
+ensureDir(join(uploadsRoot, 'videos'));
 
 // In-memory Multer storage for high-throughput, leak-free buffer processing
 const storage = multer.memoryStorage();
@@ -103,6 +112,29 @@ const upload = multer({
       cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed.'));
     }
   }
+});
+
+// Complaint/report video evidence is streamed to disk (not held in memory),
+// so a report can keep a durable URL without embedding the video in JSON.
+const evidenceVideoUploadsDir = join(uploadsRoot, 'videos');
+const evidenceVideoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, evidenceVideoUploadsDir),
+  filename: (_req, file, cb) => {
+    const timestamp = Date.now();
+    const safeName = safeOriginalFilename(file.originalname, 'complaint.mp4');
+    cb(null, `${timestamp}_${safeName}`);
+  },
+});
+const evidenceVideoUpload = multer({
+  storage: evidenceVideoStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedVideoMime(file.mimetype, file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only MP4, WebM, MOV, AVI, and MKV videos are allowed.'));
+    }
+  },
 });
 
 app.use(express.json({ limit: '10mb' }));
@@ -147,6 +179,24 @@ app.post('/api/evidence', upload.single('image'), (req: Request, res: Response) 
     console.error('[RoadGuard] Evidence upload failed:', error?.message || error);
     return res.status(500).json({ error: 'Failed to store uploaded evidence image' });
   }
+});
+
+// Persist a complaint/report video independently of detection. The file stays
+// on disk (or the configured persistent volume) and only its path/URL enters
+// the report payload.
+app.post('/api/evidence/video', evidenceVideoUpload.single('video'), (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No video provided. Attach a file as "video".' });
+  }
+
+  const relativePath = `uploads/videos/${req.file.filename}`;
+  return res.status(201).json({
+    success: true,
+    url: toPublicUploadUrl(relativePath),
+    path: relativePath,
+    filename: req.file.filename,
+    size: req.file.size,
+  });
 });
 
 // Mount video detection routes

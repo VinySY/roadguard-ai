@@ -67,6 +67,10 @@ export interface DetectionResult {
     width?: number;
     height?: number;
     fps?: number;
+    /** Durable URL returned by the backend after the source video was stored. */
+    url?: string;
+    /** Durable stored path, e.g. uploads/videos/123_clip.mp4. */
+    path?: string;
   };
   image?: { width: number; height: number };
   analytics?: {
@@ -81,6 +85,11 @@ export interface DetectionResult {
     rawPredictionCount?: number;
     candidateDetectionCount?: number;
     duplicatePredictionsRemoved?: number;
+    /** Tracks confirmed by the multi-frame tracker (video only). */
+    confirmedPotholeCount?: number;
+    /** Briefly visible tracks excluded from the final unique count. */
+    tentativePotholeCount?: number;
+    totalTracks?: number;
     /** Raw frame total (video only), kept for backwards compatibility. */
     totalDetections?: number;
   };
@@ -158,6 +167,9 @@ export interface RoadIssue {
   updatedAt: string;
   evidenceImageUrl: string;
   evidenceVideoUrl?: string;
+  /** Persisted server path for the original video (uploads/videos/...). */
+  evidenceVideoPath?: string;
+  mediaType?: 'image' | 'video';
   detectionData?: DetectionResult;
   timeline: TimelineEvent[];
   assignedWorkerId?: string;

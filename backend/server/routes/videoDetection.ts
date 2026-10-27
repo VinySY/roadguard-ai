@@ -1,4 +1,5 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import { join, dirname } from 'path';
@@ -7,12 +8,14 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { getPool } from '../db/pool.js';
 import { saveInspection, saveDetections } from '../db/persistence.js';
-import { getProjectRoot } from '../utils/paths.js';
+import { getProjectRoot, getUploadsRoot } from '../utils/paths.js';
+import { toPublicUploadUrl } from '../utils/uploads.js';
 import {
   buildServerlessInferenceUrl,
   getRoboflowConfig,
   sanitizeApiKey,
 } from '../config/roboflow.js';
+import type { EnrichedPrediction } from '../utils/detectionPostprocess.js';
 import {
   DEFAULT_BOX_IOU_THRESHOLD,
   DEFAULT_CONFIDENCE_PERCENT,
@@ -20,7 +23,6 @@ import {
   DEFAULT_MASK_IOU_THRESHOLD,
   DEFAULT_MIN_AREA_RATIO_FOR_CONTAINMENT,
   DEFAULT_OVERLAP_PERCENT,
-  EnrichedPrediction,
   InvalidRoboflowResponseError,
   calculateDamagePercentage,
   calculateRiskLevel,
@@ -34,16 +36,14 @@ import {
   parseUnitIntervalParam,
   validateRoboflowResponse,
 } from '../utils/detectionPostprocess.js';
-import {
-  summarizeTracks,
-  trackPotholes,
-  TrackFrame,
-  TrackingResult,
-} from '../utils/potholeTracker.js';
+import { summarizeTracks, trackPotholes } from '../utils/potholeTracker.js';
+import type { TrackFrame, TrackingResult } from '../utils/potholeTracker.js';
+import { planFrameExtraction } from '../utils/videoSampling.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = getProjectRoot(__dirname);
+const uploadsRoot = getUploadsRoot(projectRoot);
 
 // Configure FFmpeg binary:
 // 1. Explicit FFMPEG_PATH env var if provided
@@ -80,8 +80,21 @@ const roboflowConfig = getRoboflowConfig();
 /** Maximum video file size (50 MB) */
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
-/** Max frames to extract (caps processing time and Roboflow calls) */
-const MAX_FRAMES = 30;
+/** Absolute upper bound accepted from clients/env (protects Roboflow quota). */
+const MAX_SUPPORTED_FRAMES = 300;
+
+/**
+ * Default frame cap. 60 frames covers a one-minute video at 1 fps, including
+ * the 40.3 s regression clip. Override with MAX_VIDEO_FRAMES (bounded by
+ * MAX_SUPPORTED_FRAMES); clients may also pass `maxFrames` per request.
+ */
+const DEFAULT_MAX_FRAMES = (() => {
+  const configured = parseInt(process.env.MAX_VIDEO_FRAMES ?? '', 10);
+  if (Number.isInteger(configured) && configured > 0) {
+    return Math.min(configured, MAX_SUPPORTED_FRAMES);
+  }
+  return 60;
+})();
 
 /** Default frames per second to extract */
 const DEFAULT_FPS = 1;
@@ -107,6 +120,8 @@ interface VideoDetectionOptions {
   extractionFps: number;
   /** True when the requested fps was above MAX_EXTRACTION_FPS and clamped. */
   fpsCapped: boolean;
+  /** Maximum frames to extract and analyse for this request. */
+  maxFrames: number;
   dedupeEnabled: boolean;
   maskIou: number;
   boxIou: number;
@@ -150,6 +165,16 @@ function parseVideoOptions(req: Request): { options?: VideoDetectionOptions; err
   const extractionFps = parseExtractionFps(req.query.fps);
   if (extractionFps === null) {
     return { error: `Invalid fps value. Provide a positive number (server maximum ${MAX_EXTRACTION_FPS}).` };
+  }
+
+  const maxFrames = parseIntegerParam(
+    req.query.maxFrames,
+    DEFAULT_MAX_FRAMES,
+    1,
+    MAX_SUPPORTED_FRAMES,
+  );
+  if (maxFrames === null) {
+    return { error: `Invalid maxFrames value. Provide an integer between 1 and ${MAX_SUPPORTED_FRAMES}.` };
   }
 
   const maskIou = parseUnitIntervalParam(
@@ -204,9 +229,9 @@ function parseVideoOptions(req: Request): { options?: VideoDetectionOptions; err
     return { error: 'Invalid maxMissed value. Provide an integer between 0 and 30.' };
   }
 
-  const minHits = parseIntegerParam(req.query.minHits, null, 1, MAX_FRAMES);
+  const minHits = parseIntegerParam(req.query.minHits, null, 1, MAX_SUPPORTED_FRAMES);
   if (minHits === null && req.query.minHits !== undefined) {
-    return { error: `Invalid minHits value. Provide an integer between 1 and ${MAX_FRAMES}.` };
+    return { error: `Invalid minHits value. Provide an integer between 1 and ${MAX_SUPPORTED_FRAMES}.` };
   }
 
   return {
@@ -215,6 +240,7 @@ function parseVideoOptions(req: Request): { options?: VideoDetectionOptions; err
       overlap,
       extractionFps: extractionFps.fps,
       fpsCapped: extractionFps.capped,
+      maxFrames,
       dedupeEnabled: parseBooleanParam(req.query.dedupe ?? req.query.deduplicate, true),
       maskIou,
       boxIou,
@@ -229,12 +255,12 @@ function parseVideoOptions(req: Request): { options?: VideoDetectionOptions; err
 }
 
 // Video upload via Multer — disk storage for FFmpeg access
-const videoUploadsDir = join(projectRoot, 'uploads/videos');
+const videoUploadsDir = join(uploadsRoot, 'videos');
 if (!fs.existsSync(videoUploadsDir)) {
   fs.mkdirSync(videoUploadsDir, { recursive: true });
 }
 
-const framesDir = join(projectRoot, 'uploads/frames');
+const framesDir = join(uploadsRoot, 'frames');
 if (!fs.existsSync(framesDir)) {
   fs.mkdirSync(framesDir, { recursive: true });
 }
@@ -525,6 +551,105 @@ function maxRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
   return RISK_ORDER.indexOf(a) >= RISK_ORDER.indexOf(b) ? a : b;
 }
 
+function annotationSeverity(value?: string): 'low' | 'medium' | 'high' | 'critical' {
+  const normalized = (value || '').toLowerCase();
+  if (normalized === 'critical') return 'critical';
+  if (normalized === 'high') return 'high';
+  if (normalized === 'moderate' || normalized === 'medium') return 'medium';
+  return 'low';
+}
+
+function severityFromRiskLevel(risk: RiskLevel): 'low' | 'medium' | 'high' | 'critical' {
+  return risk.toLowerCase() as 'low' | 'medium' | 'high' | 'critical';
+}
+
+/**
+ * Persists the detector output in the same geometry the UI overlays consume:
+ * boxes are normalised top-left coordinates and polygon points stay in the
+ * original pixel space for the SVG viewBox. Nothing is synthesised.
+ */
+export function buildVideoDetectionMetadata(params: {
+  video: VideoMeta & { filename: string; url: string; path: string };
+  image: { width: number; height: number };
+  frames: FrameDetectionResult[];
+  uniquePotholeCount: number;
+  rawDetectionCount: number;
+  maxConfidence: number;
+  averageDamage: number;
+  overallRiskLevel: RiskLevel;
+}) {
+  const { video, image, frames, uniquePotholeCount, rawDetectionCount, maxConfidence, averageDamage, overallRiskLevel } = params;
+
+  const mapBoxes = (predictions: EnrichedPrediction[]) =>
+    predictions.map((prediction) => {
+      const boxWidth = prediction.width || 0;
+      const boxHeight = prediction.height || 0;
+      const leftPx = (prediction.x || 0) - boxWidth / 2;
+      const topPx = (prediction.y || 0) - boxHeight / 2;
+      return {
+        id: (prediction as any).detection_id || undefined,
+        x: image.width > 0 ? Math.max(0, Math.min(1, leftPx / image.width)) : 0,
+        y: image.height > 0 ? Math.max(0, Math.min(1, topPx / image.height)) : 0,
+        width: image.width > 0 ? Math.max(0, Math.min(1, boxWidth / image.width)) : 0,
+        height: image.height > 0 ? Math.max(0, Math.min(1, boxHeight / image.height)) : 0,
+        confidence: prediction.confidence || 0,
+        class: prediction.class || 'pothole',
+        points: prediction.points || null,
+        severity: annotationSeverity((prediction as any).severity),
+        rawX: prediction.x || 0,
+        rawY: prediction.y || 0,
+        rawWidth: boxWidth,
+        rawHeight: boxHeight,
+        imageWidth: image.width,
+        imageHeight: image.height,
+      };
+    });
+
+  const videoFrames = frames.map((frame) => ({
+    frameIndex: frame.frameIndex,
+    timestamp: frame.timestamp,
+    boxes: mapBoxes(frame.predictions),
+  }));
+  const primaryFrame = videoFrames.find((frame) => frame.boxes.length > 0);
+
+  return {
+    potholeCount: uniquePotholeCount,
+    uniquePotholeCount,
+    rawDetectionCount,
+    severity: severityFromRiskLevel(overallRiskLevel),
+    confidence: maxConfidence,
+    boxes: primaryFrame?.boxes || [],
+    image,
+    video: {
+      filename: video.filename,
+      duration: video.duration,
+      width: video.width,
+      height: video.height,
+      fps: video.fps,
+      url: video.url,
+      path: video.path,
+    },
+    videoUrl: video.url,
+    videoFrames,
+    analytics: {
+      totalDetected: uniquePotholeCount,
+      totalDetections: rawDetectionCount,
+      uniquePotholeCount,
+      rawDetectionCount,
+      maxConfidence,
+      damagePercentage: averageDamage,
+      overallRiskLevel,
+    },
+    processedAt: new Date().toISOString(),
+    recommendedAction:
+      uniquePotholeCount === 0
+        ? 'No road defects detected across video frames'
+        : overallRiskLevel === 'CRITICAL'
+        ? 'Urgent municipal field dispatch required for transit corridor'
+        : 'Priority field inspection queued for defect locations',
+  };
+}
+
 // ==========================================
 // POST /api/detect/video
 // ==========================================
@@ -539,6 +664,7 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
   next();
 }, videoUpload.single('video'), async (req: Request, res: Response) => {
   const filesToCleanup: string[] = [];
+  let keepVideo = false;
 
   try {
     const options = res.locals.videoOptions as VideoDetectionOptions;
@@ -555,7 +681,11 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     }
 
     const videoPath = req.file.path;
+    // The video is retained on success so submitted reports can play it back.
+    // Only the temporary frame directory is always removed.
     filesToCleanup.push(videoPath);
+    const relativeVideoPath = `uploads/videos/${req.file.filename}`;
+    const videoPublicUrl = toPublicUploadUrl(relativeVideoPath);
 
     console.log(
       `[RoadGuard Video] Processing: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(1)} MB) ` +
@@ -579,12 +709,12 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     );
 
     // 2. Calculate extraction parameters
-    const estimatedFrames = Math.max(1, Math.ceil(videoMeta.duration * options.extractionFps));
-    const maxFrames = Math.min(estimatedFrames, MAX_FRAMES);
+    const sampling = planFrameExtraction(videoMeta.duration, options.extractionFps, options.maxFrames);
+    const { estimatedFrames, framesToExtract: maxFrames, truncated } = sampling;
 
     console.log(
       `[RoadGuard Video] Extracting up to ${maxFrames} frames at ${options.extractionFps} fps ` +
-      `(estimated ${estimatedFrames} frames)`,
+      `(estimated ${estimatedFrames} frames, limit ${sampling.frameLimit})`,
     );
 
     // 3. Extract frames
@@ -718,9 +848,10 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     if (frameCount < 3) {
       limitations.push(`Only ${frameCount} frame(s) were sampled; cross-frame identity cannot be verified reliably.`);
     }
-    if (estimatedFrames > MAX_FRAMES) {
+    if (estimatedFrames > sampling.frameLimit) {
       limitations.push(
-        `Only the first ${MAX_FRAMES} of an estimated ${estimatedFrames} frames were analysed; potholes later in the video are not counted.`,
+        `Only the first ${maxFrames} of an estimated ${estimatedFrames} frames were analysed ` +
+        `(frame limit ${sampling.frameLimit}); potholes visible later in the video are not counted.`,
       );
     }
     const warnings: string[] = [];
@@ -736,13 +867,34 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     // 8. Persist to database (non-blocking, same pattern as image detection)
     let persistenceWarning: string | undefined;
     let inspectionId: number | undefined;
+    const detectionMetadata = buildVideoDetectionMetadata({
+      video: {
+        ...videoMeta,
+        filename: req.file.originalname,
+        url: videoPublicUrl || '',
+        path: relativeVideoPath,
+      },
+      image: {
+        width: videoMeta.width || fallbackImage.width,
+        height: videoMeta.height || fallbackImage.height,
+      },
+      frames: frameResults,
+      uniquePotholeCount,
+      rawDetectionCount,
+      maxConfidence,
+      averageDamage,
+      overallRiskLevel,
+    });
 
     try {
       const pool = getPool();
       if (pool) {
         inspectionId = await saveInspection({
           image_filename: req.file.originalname,
-          image_path: null,  // Source video is not persisted (size/privacy)
+          image_path: null,
+          media_type: 'video',
+          video_path: relativeVideoPath,
+          detection_metadata: detectionMetadata,
           image_width: videoMeta.width || fallbackImage.width,
           image_height: videoMeta.height || fallbackImage.height,
           // Keep raw frame total in detection_count and the final answer in
@@ -795,14 +947,20 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
         height: videoMeta.height,
         fps: videoMeta.fps,
         codec: videoMeta.codec,
+        url: videoPublicUrl,
+        path: relativeVideoPath,
       },
+      videoUrl: videoPublicUrl,
+      videoPath: relativeVideoPath,
       processing: {
         extractionFps: options.extractionFps,
         totalFrames: frameCount,
         processedFrames: frameResults.length,
         failedFrames: errors.length,
         maxFrames,
+        frameLimit: sampling.frameLimit,
         estimatedFrames,
+        truncated,
       },
       model,
       analytics: {
@@ -839,6 +997,7 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
 
     if (options.debug) {
       responsePayload.debug = {
+        sampling,
         rawFrameDetections: frameResults.map((frame) => ({
           frameIndex: frame.frameIndex,
           timestamp: frame.timestamp,
@@ -854,11 +1013,22 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
     }
 
     if (inspectionId !== undefined) {
-      responsePayload.persistence = { saved: true, inspectionId };
+      responsePayload.persistence = {
+        saved: true,
+        inspectionId,
+        videoUrl: videoPublicUrl,
+        videoPath: relativeVideoPath,
+      };
     } else if (persistenceWarning) {
-      responsePayload.persistence = { saved: false, warning: persistenceWarning };
+      responsePayload.persistence = {
+        saved: false,
+        warning: persistenceWarning,
+        videoUrl: videoPublicUrl,
+        videoPath: relativeVideoPath,
+      };
     }
 
+    keepVideo = true;
     res.json(responsePayload);
 
   } catch (error: any) {
@@ -868,8 +1038,10 @@ router.post('/api/detect/video', (req: Request, res: Response, next: NextFunctio
       details: error instanceof Error ? error.message : 'Unknown server error',
     });
   } finally {
-    // Always clean up temporary files
-    cleanupFiles(filesToCleanup);
+    // Remove extracted frames and failed-upload videos, but keep the original
+    // video when detection succeeded so its durable URL remains playable.
+    const retainedPath = keepVideo ? req.file?.path : undefined;
+    cleanupFiles(filesToCleanup.filter((filePath) => filePath !== retainedPath));
   }
 });
 

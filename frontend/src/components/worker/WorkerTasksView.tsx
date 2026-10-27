@@ -11,7 +11,7 @@ import {
   Wrench,
   ClipboardList,
 } from 'lucide-react';
-import { EvidenceImage } from '../common/EvidenceImage';
+import { DetectionMedia } from '../common/DetectionMedia';
 import { PageHeader } from '../common/PageHeader';
 import { StatusBadge } from '../common/StatusBadge';
 import { EmptyState } from '../common/EmptyState';
@@ -202,15 +202,16 @@ export const WorkerTasksView: React.FC<WorkerTasksViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Visual Evidence & AI Detection (5 cols) */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Photographic Evidence */}
+          {/* Photographic / video Evidence */}
           <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
-            <div className="relative aspect-video flex items-center justify-center">
-              <EvidenceImage
-                src={activeIssue.evidenceImageUrl}
-                alt={`Pothole evidence for ${activeIssue.referenceNumber}`}
+            <div className="relative flex items-center justify-center p-1.5">
+              <DetectionMedia
+                imageSrc={activeIssue.evidenceImageUrl}
+                videoSrc={activeIssue.evidenceVideoUrl}
+                detection={activeIssue.detectionData}
+                alt={`Road evidence for ${activeIssue.referenceNumber}`}
                 caption={activeIssue.location.street || activeIssue.location.area}
-                className="h-full w-full"
-                imgClassName="w-full h-full object-cover"
+                maxHeightClassName="max-h-[280px]"
                 allowFullView
               />
               <div className="absolute top-2 right-2 bg-slate-900/90 text-amber-400 text-[11px] font-mono px-2 py-0.5 rounded border border-slate-700">

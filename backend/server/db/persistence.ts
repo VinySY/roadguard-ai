@@ -23,6 +23,9 @@ export interface InspectionRecord {
   overall_risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   damage_percentage: number;
   confidence_threshold: number;
+  media_type?: 'image' | 'video';
+  video_path?: string | null;
+  detection_metadata?: unknown | null;
   latitude?: number | null;
   longitude?: number | null;
   created_at: Date;
@@ -50,7 +53,10 @@ export interface RoadIssueRecord {
   longitude: number | null;
   severity: 'minor' | 'moderate' | 'high' | 'critical';
   status: 'Reported' | 'In Inspection' | 'Scheduled for Repair' | 'Resolved';
+  media_type?: 'image' | 'video';
   evidence_path: string | null;
+  evidence_video_path?: string | null;
+  detection_metadata?: unknown | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -65,6 +71,9 @@ export interface InspectionInsertData {
   overall_risk: string;
   damage_percentage: number;
   confidence_threshold: number;
+  media_type?: 'image' | 'video';
+  video_path?: string | null;
+  detection_metadata?: unknown | null;
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -88,7 +97,10 @@ export interface RoadIssueInsertData {
   longitude: number | null;
   severity: string;
   status?: string;
+  media_type?: 'image' | 'video';
   evidence_path?: string | null;
+  evidence_video_path?: string | null;
+  detection_metadata?: unknown | null;
 }
 
 export interface AnalyticsSummaryResponse {
@@ -150,39 +162,24 @@ export async function saveInspection(data: InspectionInsertData): Promise<number
     data.longitude !== undefined &&
     data.longitude !== null;
 
-  if (hasLocation) {
-    try {
-      const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO inspections
-          (image_filename, image_path, image_width, image_height, detection_count,
-           unique_pothole_count, overall_risk, damage_percentage, confidence_threshold, latitude, longitude)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          data.image_filename,
-          data.image_path,
-          data.image_width,
-          data.image_height,
-          data.detection_count,
-          data.unique_pothole_count ?? null,
-          data.overall_risk,
-          data.damage_percentage,
-          data.confidence_threshold,
-          data.latitude ?? null,
-          data.longitude ?? null,
-        ] as any[]
-      );
-      return result.insertId;
-    } catch {
-      // If latitude column isn't present, fall back to standard insert
-    }
-  }
+  const serializeMetadata = (): string | null =>
+    data.detection_metadata === undefined || data.detection_metadata === null
+      ? null
+      : JSON.stringify(data.detection_metadata);
 
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO inspections
-      (image_filename, image_path, image_width, image_height, detection_count,
-       unique_pothole_count, overall_risk, damage_percentage, confidence_threshold)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
+  const attemptInsert = async (includeMedia: boolean, includeLocation: boolean): Promise<number> => {
+    const columns = [
+      'image_filename',
+      'image_path',
+      'image_width',
+      'image_height',
+      'detection_count',
+      'unique_pothole_count',
+      'overall_risk',
+      'damage_percentage',
+      'confidence_threshold',
+    ];
+    const values: any[] = [
       data.image_filename,
       data.image_path,
       data.image_width,
@@ -192,10 +189,50 @@ export async function saveInspection(data: InspectionInsertData): Promise<number
       data.overall_risk,
       data.damage_percentage,
       data.confidence_threshold,
-    ] as any[]
-  );
+    ];
 
-  return result.insertId;
+    if (includeMedia) {
+      columns.push('media_type', 'video_path', 'detection_metadata');
+      values.push(data.media_type || 'image', data.video_path ?? null, serializeMetadata());
+    }
+
+    if (includeLocation) {
+      columns.push('latitude', 'longitude');
+      values.push(data.latitude ?? null, data.longitude ?? null);
+    }
+
+    const placeholders = columns.map(() => '?').join(', ');
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO inspections (${columns.join(', ')}) VALUES (${placeholders})`,
+      values
+    );
+
+    return result.insertId;
+  };
+
+  const attempts: Array<{ media: boolean; location: boolean }> = [
+    { media: true, location: hasLocation },
+    { media: false, location: hasLocation },
+    { media: true, location: false },
+    { media: false, location: false },
+  ];
+
+  let lastError: any;
+  for (const attempt of attempts) {
+    try {
+      return await attemptInsert(attempt.media, attempt.location);
+    } catch (error: any) {
+      lastError = error;
+      // Older databases may not have the optional media/location columns yet.
+      // Only retry when MySQL reports an unknown column; otherwise surface the
+      // real failure instead of silently dropping recorded detector output.
+      const isUnknownColumn =
+        error?.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(String(error?.message || ''));
+      if (!isUnknownColumn) throw error;
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -304,11 +341,17 @@ export async function saveRoadIssue(data: RoadIssueInsertData): Promise<number> 
 
   const status = data.status || 'Reported';
 
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO road_issues
-      (category, description, latitude, longitude, severity, status, evidence_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
+  const attemptInsert = async (includeMedia: boolean): Promise<number> => {
+    const columns = [
+      'category',
+      'description',
+      'latitude',
+      'longitude',
+      'severity',
+      'status',
+      'evidence_path',
+    ];
+    const values: any[] = [
       data.category,
       data.description,
       data.latitude,
@@ -316,10 +359,37 @@ export async function saveRoadIssue(data: RoadIssueInsertData): Promise<number> 
       data.severity,
       status,
       data.evidence_path || null,
-    ]
-  );
+    ];
 
-  return result.insertId;
+    if (includeMedia) {
+      columns.push('media_type', 'evidence_video_path', 'detection_metadata');
+      values.push(
+        data.media_type || 'image',
+        data.evidence_video_path || null,
+        data.detection_metadata === undefined || data.detection_metadata === null
+          ? null
+          : JSON.stringify(data.detection_metadata)
+      );
+    }
+
+    const placeholders = columns.map(() => '?').join(', ');
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO road_issues (${columns.join(', ')}) VALUES (${placeholders})`,
+      values
+    );
+
+    return result.insertId;
+  };
+
+  try {
+    return await attemptInsert(true);
+  } catch (error: any) {
+    const isUnknownColumn =
+      error?.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(String(error?.message || ''));
+    if (!isUnknownColumn) throw error;
+    // Pre-migration database: keep accepting reports with the legacy columns.
+    return attemptInsert(false);
+  }
 }
 
 /**

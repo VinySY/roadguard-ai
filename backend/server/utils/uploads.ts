@@ -3,20 +3,27 @@ import { join, normalize, relative, sep } from 'path';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const ALLOWED_VIDEO_TYPES = [
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
   'video/mp4',
   'video/webm',
   'video/quicktime',
+  'video/x-msvideo',
+  'video/x-matroska',
 ];
+const ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
 
 export function isAllowedEvidenceMime(mime: string, includeVideo = false): boolean {
   const normalized = (mime || '').toLowerCase();
   return includeVideo
     ? ALLOWED_VIDEO_TYPES.includes(normalized) || ALLOWED_IMAGE_TYPES.includes(normalized)
     : ALLOWED_IMAGE_TYPES.includes(normalized);
+}
+
+/** Videos may arrive with generic MIME types, so also accept safe extensions. */
+export function isAllowedVideoMime(mime: string, originalName = ''): boolean {
+  const normalized = (mime || '').toLowerCase();
+  if (ALLOWED_VIDEO_TYPES.includes(normalized)) return true;
+  const extension = `.${(originalName.split('.').pop() || '').toLowerCase()}`;
+  return ALLOWED_VIDEO_EXTENSIONS.includes(extension);
 }
 
 export function safeOriginalFilename(originalName: string, fallback = 'upload.jpg'): string {

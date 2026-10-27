@@ -499,6 +499,15 @@ export const VideoDetector: React.FC<VideoDetectorProps> = ({
                   </span>{' '}
                   <span className="text-slate-500">(before cross-frame tracking)</span>
                 </span>
+                {(videoResult.analytics?.tentativePotholeCount ?? 0) > 0 && (
+                  <span>
+                    Tentative tracks:{' '}
+                    <span className="font-mono text-amber-300">
+                      {videoResult.analytics?.tentativePotholeCount}
+                    </span>{' '}
+                    <span className="text-slate-500">(visible too briefly to confirm; not counted)</span>
+                  </span>
+                )}
               </div>
 
               {videoResult.limitations && videoResult.limitations.length > 0 && (

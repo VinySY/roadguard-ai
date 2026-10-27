@@ -6,17 +6,22 @@
  * and older tests/clients that used `deduplicateDetectionsAcrossFrames`.
  */
 
-import {
+import type {
   BoundingBox,
   RawPrediction,
   SanitizedPrediction,
+} from './detectionPostprocess.js';
+import {
   boxFromPrediction,
   calculateBoxIoU,
   compareMasks,
 } from './detectionPostprocess.js';
-import { trackPotholes, TrackFrame } from './potholeTracker.js';
+import type { TrackFrame } from './potholeTracker.js';
+import { trackPotholes } from './potholeTracker.js';
 
-export { BoundingBox };
+// Type-only re-export: at runtime these names do not exist in the compiled
+// module, so a value export would crash under tsx/esbuild.
+export type { BoundingBox, RawPrediction, SanitizedPrediction };
 
 export interface TrackedDetection {
   prediction: any;

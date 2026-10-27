@@ -124,6 +124,78 @@ export async function uploadEvidenceFile(
   return { url: resolveMediaUrl(url) || url, path };
 }
 
+export function storedMediaPathFromUrl(url: string): string | undefined {
+  const cleaned = url.split('?')[0].split('#')[0];
+  if (cleaned.startsWith('/api/uploads/')) return cleaned.slice('/api/'.length);
+  if (cleaned.startsWith('uploads/')) return cleaned;
+  if (cleaned.startsWith('/uploads/')) return cleaned.slice(1);
+
+  // Absolute backend URLs (e.g. VITE_API_BASE_URL deployments) still map back
+  // to the stored path accepted by the API.
+  const match = cleaned.match(/\/api\/uploads\/(.+)$/);
+  if (match) return `uploads/${match[1]}`;
+  return undefined;
+}
+
+export async function uploadEvidenceVideo(
+  source: Blob | File,
+  filename = 'complaint-video.webm'
+): Promise<{ url: string; path: string } | null> {
+  const formData = new FormData();
+  const name = source instanceof File ? source.name || filename : filename;
+  formData.append('video', source, name);
+
+  const response = await fetch(getApiUrl('/api/evidence/video'), {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Video upload failed (HTTP ${response.status})`);
+  }
+
+  const json = await response.json();
+  const url = typeof json.url === 'string' ? json.url : null;
+  const path = typeof json.path === 'string' ? json.path : url;
+  if (!url || !path) return null;
+  return { url: resolveMediaUrl(url) || url, path };
+}
+
+/**
+ * Persists the original report video on the backend. Unlike the image helper
+ * this never falls back to a data URL: storing a multi-megabyte base64 video in
+ * localStorage/MySQL would be worse than showing the explicit unavailable state.
+ */
+export async function persistEvidenceVideoSource(
+  source: Blob | File | string | null | undefined,
+  filename?: string
+): Promise<{ url: string; path: string } | null> {
+  if (!source) return null;
+
+  if (typeof source === 'string') {
+    if (source.startsWith('blob:') || source.startsWith('data:')) {
+      try {
+        const res = await fetch(source);
+        const blob = await res.blob();
+        return persistEvidenceVideoSource(blob, filename);
+      } catch {
+        return null;
+      }
+    }
+
+    const resolved = resolveMediaUrl(source);
+    if (!resolved) return null;
+    return { url: resolved, path: storedMediaPathFromUrl(resolved) || source };
+  }
+
+  try {
+    return await uploadEvidenceVideo(source, filename);
+  } catch (err) {
+    console.warn('Could not persist report video on the backend.', err);
+    return null;
+  }
+}
+
 /**
  * Persist a complaint photograph so it remains visible after refresh.
  * Prefers the backend upload store; falls back to a data URL of the same photo.

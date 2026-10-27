@@ -107,3 +107,20 @@ npm run dev
 | `GET` | `/api/samples` | Returns list of curated sample road images for testing |
 | `GET` | `/api/samples/:filename` | Serves sample image file |
 | `POST` | `/api/detect` | Accepts uploaded image buffer or sample filename, runs RF-DETR segmentation, and returns enriched pothole metrics |
+| `POST` | `/api/detect/video` | Samples frames, runs detection/tracking, retains the source video, and returns durable `video.url` / `video.path` plus persisted annotation geometry |
+| `POST` | `/api/evidence` | Stores an uploaded complaint photograph and returns its durable `/api/uploads/...` URL |
+| `POST` | `/api/evidence/video` | Stores a complaint video without running detection and returns its durable `/api/uploads/...` URL |
+
+---
+
+## 🗂️ Media persistence (important for production)
+
+Uploaded inspection images, report photos, and videos are written to disk and served from `/api/uploads/...`. By default the backend uses `<backend>/uploads`, which survives a process restart but **not** a container redeploy on hosts with ephemeral filesystems (including Render's free plan).
+
+To keep media playable across redeploys, mount a persistent volume and point the backend at it:
+
+```bash
+UPLOAD_ROOT=/var/data/roadguard-media   # or MEDIA_ROOT
+```
+
+Stored database values stay relative (`uploads/videos/<file>`), so public URLs do not change when the volume location changes. If a file is genuinely missing, the UI shows an explicit "Photograph unavailable" / "Video unavailable" state instead of a broken player. Report JSON stores only compact detector geometry (boxes, polygons, classes, confidence, timestamps) — never base64 media.

@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { SanitizedPrediction } from '../server/utils/detectionPostprocess.js';
 import {
   DEFAULT_BOX_IOU_THRESHOLD,
   DEFAULT_MASK_IOU_THRESHOLD,
   InvalidRoboflowResponseError,
-  SanitizedPrediction,
   calculateBoxIoU,
   deduplicatePredictions,
   enrichPredictions,
@@ -16,7 +16,9 @@ import {
   sanitizePrediction,
   validateRoboflowResponse,
 } from '../server/utils/detectionPostprocess.js';
-import { trackPotholes, TrackFrame } from '../server/utils/potholeTracker.js';
+import type { TrackFrame } from '../server/utils/potholeTracker.js';
+import { trackPotholes } from '../server/utils/potholeTracker.js';
+import { planFrameExtraction } from '../server/utils/videoSampling.js';
 import {
   resolveInspectionUniqueCount,
   resolveRawDetectionCount,
@@ -165,6 +167,34 @@ test('nested duplicate masks merge via containment but differently-sized objects
     2,
     'a tiny contained speck must not be merged into an unrelated large pothole',
   );
+});
+
+test('a larger mask spanning two touching potholes does not hide the second pothole', () => {
+  const single = prediction({
+    x: 45, y: 45, width: 50, height: 50, confidence: 0.84,
+    points: square(20, 20, 70, 70),
+    detection_id: 'single',
+  });
+  // Lower-confidence mask covers the first pothole AND a touching neighbour.
+  const spanning = prediction({
+    x: 65, y: 45, width: 90, height: 50, confidence: 0.43,
+    points: square(20, 20, 110, 70),
+    detection_id: 'spanning',
+  });
+
+  const result = deduplicatePredictions([single, spanning], {
+    maskIouThreshold: DEFAULT_MASK_IOU_THRESHOLD,
+    containmentThreshold: 0.9,
+    minAreaRatioForContainment: 0.35,
+  });
+
+  assert.equal(
+    result.predictions.length,
+    2,
+    'containment must not merge a larger mask that may span separate potholes',
+  );
+  assert.equal(result.duplicateCount, 0);
+  assert.equal(result.predictions[0].detection_id, 'single');
 });
 
 test('nearby but separate potholes are not merged', () => {
@@ -431,4 +461,45 @@ test('synthetic 3-frame clip: 18 raw synonym predictions collapse to 2 unique po
   );
   assert.equal(resolveInspectionUniqueCount({ detection_count: 7, unique_pothole_count: null }), 7);
   assert.equal(resolveInspectionUniqueCount(null), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Frame sampling: long clips must not silently lose their final seconds
+// ---------------------------------------------------------------------------
+
+test('40.3s clip at 1 fps is fully sampled with the default 60-frame cap', () => {
+  const plan = planFrameExtraction(40.3, 1, 60);
+  assert.equal(plan.estimatedFrames, 41);
+  assert.equal(plan.framesToExtract, 41);
+  assert.equal(plan.truncated, false);
+  assert.equal(plan.frameLimit, 60);
+});
+
+test('a 30-frame cap truncates a 40.3s clip and reports it', () => {
+  const plan = planFrameExtraction(40.3, 1, 30);
+  assert.equal(plan.estimatedFrames, 41);
+  assert.equal(plan.framesToExtract, 30);
+  assert.equal(plan.truncated, true);
+});
+
+test('frame planning handles sub-second, invalid and high-fps inputs', () => {
+  assert.deepEqual(planFrameExtraction(0.4, 1, 60), {
+    estimatedFrames: 1,
+    framesToExtract: 1,
+    truncated: false,
+    frameLimit: 60,
+  });
+
+  // Invalid duration/fps fall back to a single safe sample.
+  assert.equal(planFrameExtraction(Number.NaN, 1, 60).framesToExtract, 1);
+  assert.equal(planFrameExtraction(10, Number.NaN, 60).estimatedFrames, 10);
+
+  // Dense sampling still respects the cap.
+  const dense = planFrameExtraction(10, 5, 20);
+  assert.equal(dense.estimatedFrames, 50);
+  assert.equal(dense.framesToExtract, 20);
+  assert.equal(dense.truncated, true);
+
+  // Invalid limits clamp to one frame rather than producing NaN.
+  assert.equal(planFrameExtraction(10, 1, Number.NaN).framesToExtract, 1);
 });

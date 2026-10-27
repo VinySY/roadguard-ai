@@ -10,7 +10,7 @@
     "lint": "tsc --noEmit --pretty",
     "db:init": "tsx server/db/init.ts",
     "db:init:prod": "node dist/server/db/init.js",
-    "test": "tsx --test tests/detection.test.ts",
+    "test": "tsx --test tests/detection.test.ts tests/media.test.ts",
     "test:detection": "tsx test-detection.ts"
   },
   "engines": {

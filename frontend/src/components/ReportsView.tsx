@@ -22,6 +22,8 @@ import {
   DetectionRecord 
 } from '../services/api';
 import { resolveInspectionUniqueCount } from '../services/detectionCounts';
+import { buildInspectionDetection } from '../services/annotations';
+import { DetectionMedia } from './common/DetectionMedia';
 
 interface ReportsViewProps {
   latestResult: DetectionResult | null;
@@ -94,6 +96,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   };
 
   const overallRisk = selectedInspection?.overall_risk || 'LOW';
+  const selectedDetection = selectedInspection
+    ? buildInspectionDetection(selectedInspection, inspectionDetections)
+    : null;
+  const selectedMediaIsVideo =
+    selectedInspection?.media_type === 'video' ||
+    Boolean(selectedInspection?.video_url || selectedInspection?.video_path);
 
   return (
     <div className="space-y-6 w-full">
@@ -298,6 +306,34 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                       Conf &ge; {selectedInspection.confidence_threshold}%
                     </span>
                   </div>
+                </div>
+
+                {/* Persisted Evidence + Detector Overlay */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">
+                      Source Media &amp; Detector Overlay
+                    </h4>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase">
+                      {selectedMediaIsVideo ? 'Video inspection' : 'Image inspection'}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-2">
+                    <DetectionMedia
+                      imageSrc={selectedInspection.image_url || selectedInspection.image_path}
+                      videoSrc={selectedInspection.video_url || selectedInspection.video_path}
+                      detection={selectedDetection}
+                      alt={`Persisted road evidence for inspection #${selectedInspection.id}`}
+                      caption={selectedInspection.image_filename}
+                      maxHeightClassName="max-h-[340px]"
+                      allowFullView
+                    />
+                  </div>
+                  {!selectedDetection && (
+                    <p className="text-[11px] text-slate-500">
+                      No stored detector geometry is available for this record. The source media is shown without annotations.
+                    </p>
+                  )}
                 </div>
 
                 {/* Structured Defect Breakdown Table */}

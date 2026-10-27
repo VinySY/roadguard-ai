@@ -6,6 +6,10 @@ export interface InspectionRecord {
   image_filename: string;
   image_path: string | null;
   image_url?: string | null;
+  video_path?: string | null;
+  video_url?: string | null;
+  media_type?: 'image' | 'video' | string | null;
+  detection_metadata?: unknown;
   image_width: number;
   image_height: number;
   detection_count: number;
@@ -50,8 +54,12 @@ export interface RoadIssueRecord {
   longitude: number | null;
   severity: 'minor' | 'moderate' | 'high' | 'critical';
   status: 'Reported' | 'In Inspection' | 'Scheduled for Repair' | 'Resolved';
+  media_type?: 'image' | 'video' | string | null;
   evidence_path: string | null;
   evidence_url?: string | null;
+  evidence_video_path?: string | null;
+  evidence_video_url?: string | null;
+  detection_metadata?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -68,7 +76,10 @@ export interface CreateRoadIssuePayload {
   status?: string;
   latitude?: number | null;
   longitude?: number | null;
+  media_type?: 'image' | 'video';
   evidence_path?: string | null;
+  evidence_video_path?: string | null;
+  detection_metadata?: unknown;
   evidenceFile?: File | Blob | null;
 }
 
@@ -166,6 +177,12 @@ export async function createRoadIssue(payload: CreateRoadIssuePayload): Promise<
     if (payload.status) formData.append('status', payload.status);
     if (payload.latitude != null) formData.append('latitude', String(payload.latitude));
     if (payload.longitude != null) formData.append('longitude', String(payload.longitude));
+    if (payload.media_type) formData.append('media_type', payload.media_type);
+    if (payload.evidence_path) formData.append('evidence_path', payload.evidence_path);
+    if (payload.evidence_video_path) formData.append('evidence_video_path', payload.evidence_video_path);
+    if (payload.detection_metadata !== undefined && payload.detection_metadata !== null) {
+      formData.append('detection_metadata', JSON.stringify(payload.detection_metadata));
+    }
     const fileName = payload.evidenceFile instanceof File ? payload.evidenceFile.name : 'complaint.jpg';
     formData.append('evidence', payload.evidenceFile, fileName);
     res = await fetch(getApiUrl('/api/issues'), {
